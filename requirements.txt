@@ -1,0 +1,12 @@
+Django>=4.2
+djangorestframework>=3.14
+psycopg2-binary>=2.9
+python-dotenv>=1.0.1
+gunicorn>=21.2.0
+drf-yasg>=1.21.7
+celery>=5.3.6
+redis>=5.0.1
+prometheus-client>=0.20.0
+loguru>=0.7.2
+djangorestframework-simplejwt>=5.3.1 
+ipython>=8.24.0
