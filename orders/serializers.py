@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Order, Terminal, Robot, Program
+from .models import Program
 
 
 class ProgramSerializer(serializers.ModelSerializer):
@@ -11,28 +11,12 @@ class ProgramSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 
-class TerminalSerializer(serializers.ModelSerializer):
+class WashOrderCreateSerializer(serializers.Serializer):
     """
-    Сериализатор для модели Terminal.
+    Сериализатор для создания заказа на мойку.
+    Ожидает:
+        - program_id (int)
+        - ucn (str, необязательное)
     """
-    class Meta:
-        model = Terminal
-        fields = '__all__'
-
-
-class RobotSerializer(serializers.ModelSerializer):
-    """
-    Сериализатор для модели Robot.
-    """
-    class Meta:
-        model = Robot
-        fields = '__all__'
-
-
-class OrderSerializer(serializers.ModelSerializer):
-    """
-    Сериализатор для модели Order.
-    """
-    class Meta:
-        model = Order
-        fields = '__all__'
+    program_id = serializers.IntegerField()
+    ucn = serializers.CharField(required=False, allow_blank=True)
