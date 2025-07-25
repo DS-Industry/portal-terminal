@@ -119,19 +119,18 @@ class WashOrderPaymentView(APIView):
     def post(self, request):
         serializer = WashOrderPaymentSerializer(data=request.data)
         if serializer.is_valid():
+            transaction_id = serializer.validated_data['transaction_id']
             payment_type = serializer.validated_data['payment_type']
 
-            try:
-                order = WashOrder.objects.latest("id")
-            except WashOrder.DoesNotExist:
-                return Response({"error": "Нет ни одного заказа"}, status=404)
+            order = get_object_or_404(WashOrder, transaction_id=transaction_id)
 
             order.payment_type = payment_type
             order.status = WashOrder.Status.WAITING_PAYMENT
             order.save()
+
             print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
 
-            # Запуск соответствующей функции оплаты
+            # Заглушка оплаты
             if payment_type == 'cash':
                 cash_payment()
             elif payment_type == 'bank_card':
@@ -141,12 +140,12 @@ class WashOrderPaymentView(APIView):
             elif payment_type == 'loyalty_card':
                 loyalty_card_payment()
 
-            # Обновляем статус на PAYED
+            # Статус: Оплачено
             order.status = WashOrder.Status.PAYED
             order.save()
             print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
 
-            # Запуск мойки
+            # Запуск мойки (заглушка)
             start_car_wash(order)
 
             return Response({'message': 'Оплата прошла успешно, мойка запущена'}, status=200)
