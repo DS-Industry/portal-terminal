@@ -24,16 +24,16 @@ class WashOrderCreateSerializer(serializers.Serializer):
 
 class WashOrderPaymentSerializer(serializers.Serializer):
     """
-    Сериализатор для запроса оплаты мойки.
+    Сериализатор для обработки типа оплаты.
 
     Ожидает:
-    - transaction_id (str)
-    - payment_type (str): cash, bank_card, mobile_app, loyalty_card
+        - transaction_id (str): UUID заказа
+        - payment_type (str): Тип оплаты
     """
-    transaction_id = serializers.CharField()
+    transaction_id = serializers.UUIDField()
     payment_type = serializers.ChoiceField(choices=[
         ('cash', 'cash'),
         ('bank_card', 'bank_card'),
         ('mobile_app', 'mobile_app'),
-        ('loyalty_card', 'loyalty_card')
+        ('loyalty_card', 'loyalty_card'),
     ])

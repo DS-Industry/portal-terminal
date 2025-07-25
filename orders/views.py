@@ -1,7 +1,9 @@
 # orders/views.py
-from rest_framework import viewsets, status
+from rest_framework import viewsets
+from rest_framework import status as drf_status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+
 
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -103,17 +105,9 @@ class WashOrderPaymentView(APIView):
 
     Принимает JSON:
         {
+            "transaction_id": "uuid",
             "payment_type": "cash"
         }
-
-    Последовательность действий:
-    - Находит последний заказ
-    - Обновляет поле payment_type
-    - Меняет статус на "waiting_payment"
-    - Запускает соответствующую функцию оплаты (заглушка с таймером)
-    - Меняет статус на "payed"
-    - Запускает мойку (ещё один таймер)
-    - Меняет статус на "completed"
     """
 
     def post(self, request):
@@ -124,10 +118,27 @@ class WashOrderPaymentView(APIView):
 
             order = get_object_or_404(WashOrder, transaction_id=transaction_id)
 
+            # Проверки статуса
+            if order.status == WashOrder.Status.COMPLETED:
+                return Response({"error": "Заказ уже завершён. Повторная оплата невозможна."},
+                                status=drf_status.HTTP_400_BAD_REQUEST)
+
+            if order.status == WashOrder.Status.PAYED:
+                return Response({"error": "Заказ уже оплачен."},
+                                status=drf_status.HTTP_400_BAD_REQUEST)
+
+            if order.status == WashOrder.Status.PROCESSING:
+                return Response({"error": "Мойка уже запущена. Повторная оплата невозможна."},
+                                status=drf_status.HTTP_400_BAD_REQUEST)
+
+            if order.status == WashOrder.Status.WAITING_PAYMENT:
+                return Response({"error": "Заказ уже в ожидании оплаты."},
+                                status=drf_status.HTTP_400_BAD_REQUEST)
+
+            # Обновляем статус и тип оплаты
             order.payment_type = payment_type
             order.status = WashOrder.Status.WAITING_PAYMENT
             order.save()
-
             print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
 
             # Заглушка оплаты
@@ -149,7 +160,8 @@ class WashOrderPaymentView(APIView):
             start_car_wash(order)
 
             return Response({'message': 'Оплата прошла успешно, мойка запущена'}, status=200)
-        return Response(serializer.errors, status=400)
+
+        return Response(serializer.errors, status=drf_status.HTTP_400_BAD_REQUEST)
 
 
 def start_car_wash(order):
