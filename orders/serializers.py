@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Program
+from .models import Program, WashOrder
 
 
 class ProgramSerializer(serializers.ModelSerializer):
@@ -8,7 +8,7 @@ class ProgramSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = Program
-        fields = '__all__'
+        fields = ['id', 'name', 'price', 'description', 'duration']
 
 
 class WashOrderCreateSerializer(serializers.Serializer):
@@ -20,3 +20,18 @@ class WashOrderCreateSerializer(serializers.Serializer):
     """
     program_id = serializers.IntegerField()
     ucn = serializers.CharField(required=False, allow_blank=True)
+
+
+class WashOrderPaymentSerializer(serializers.Serializer):
+    """
+    Сериализатор для обработки типа оплаты.
+
+    Ожидает:
+        - payment_type (str): Тип оплаты (cash, bank_card, mobile_app, loyalty_card)
+    """
+    payment_type = serializers.ChoiceField(choices=[
+        ('cash', 'cash'),
+        ('bank_card', 'bank_card'),
+        ('mobile_app', 'mobile_app'),
+        ('loyalty_card', 'loyalty_card'),
+    ])

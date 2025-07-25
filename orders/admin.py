@@ -6,9 +6,9 @@ from .models import Program, WashOrder
 class ProgramAdmin(admin.ModelAdmin):
     """
     Настройка отображения таблицы программ мойки в админке.
-    Показываем ID, название и цену.
+    Показываем ID, название, цену, описание, время выполнения.
     """
-    list_display = ('name', 'price', 'id')
+    list_display = ('name', 'price', 'id', 'description', 'duration')
     ordering = ('id',)
 
 

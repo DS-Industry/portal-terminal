@@ -6,13 +6,15 @@ from datetime import datetime
 class Program(models.Model):
     """
     Модель Program описывает доступные программы мойки.
-    Редактируется через Django Admin.
     """
     name = models.CharField(max_length=100)
     price = models.DecimalField(max_digits=8, decimal_places=2)
+    description = models.TextField(blank=True, null=True, help_text="Описание программы")
+    duration = models.PositiveIntegerField(default=0, help_text="Продолжительность в минутах")
 
     def __str__(self):
-        return f"{self.name} ({self.price}₽)"
+        return f"{self.name} — {self.duration} мин"
+
 
 
 class WashOrder(models.Model):
@@ -23,22 +25,25 @@ class WashOrder(models.Model):
         - program: связь с программой мойки
         - program_price: цена на момент заказа
         - transaction_id: уникальный ID транзакции
-        - date: дата и время в формате "дд.мм.гггг - чч:мм:сс"
-        - status: статус заказа
-        - ucn: необязательный номер карты лояльности
+        - date: дата и время создания заказа
+        - status: текущий статус заказа
+        - ucn: номер карты лояльности (опционально)
+        - payment_type: тип оплаты (банковская карта, наличные и т.д.)
     """
 
     class Status(models.TextChoices):
         CREATED = 'created'
-        PAYMENT_PROCESSING = 'payment_processing'
         WAITING_PAYMENT = 'waiting_payment'
-        PAYMENT_AUTHORIZED = 'payment_authorized'
         PAYED = 'payed'
         FAILED = 'failed'
         COMPLETED = 'completed'
-        CANCELED = 'canceled'
-        REFUNDED = 'refunded'
-        FREE_PROCESSING = 'free_processing'
+        PROCESSING = 'processing'
+
+    class PaymentType(models.TextChoices):
+        BANK_CARD = 'bank-card'
+        CASH = 'cash'
+        MOBILE_APP = 'mobile-app'
+        LOYALTY_CARD = 'loyalty-card'
 
     program = models.ForeignKey(Program, on_delete=models.CASCADE)
     program_price = models.DecimalField(max_digits=8, decimal_places=2)
@@ -46,6 +51,13 @@ class WashOrder(models.Model):
     date = models.CharField(max_length=30)
     status = models.CharField(max_length=50, choices=Status.choices, default=Status.CREATED)
     ucn = models.CharField(max_length=50, null=True, blank=True)
+    payment_type = models.CharField(
+        max_length=20,
+        choices=PaymentType.choices,
+        null=True,
+        blank=True,
+        help_text="Тип оплаты"
+    )
 
     def __str__(self):
         return f"Order {self.transaction_id} [{self.program.name}] - {self.status}"

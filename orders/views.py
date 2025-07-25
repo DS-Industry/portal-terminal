@@ -1,10 +1,20 @@
+# orders/views.py
 from rest_framework import viewsets, status
 from rest_framework.views import APIView
 from rest_framework.response import Response
+
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+
 from .models import Program, WashOrder
-from .serializers import ProgramSerializer, WashOrderCreateSerializer
+from .serializers import (
+    ProgramSerializer,
+    WashOrderCreateSerializer,
+    WashOrderPaymentSerializer
+)
+
 import uuid
-from datetime import datetime
+import time
 
 
 class ProgramViewSet(viewsets.ModelViewSet):
@@ -15,24 +25,39 @@ class ProgramViewSet(viewsets.ModelViewSet):
     serializer_class = ProgramSerializer
 
 
+class ProgramListView(APIView):
+    """
+    Эндпоинт для получения списка программ мойки.
+
+    URL: /api/wash-programs/
+    Метод: GET
+    """
+
+    def get(self, request):
+        programs = Program.objects.all().order_by('id')
+        serializer = ProgramSerializer(programs, many=True)
+        return Response(serializer.data)
+
+
 class CreateWashOrderView(APIView):
     """
     Эндпоинт создания заказа на мойку.
 
     Принимает JSON:
-    {
-        "program_id": 1,
-        "ucn": "123456" (необязательно)
-    }
+        {
+            "program_id": 1,
+            "ucn": "123456" (необязательно)
+        }
 
     Возвращает:
-    {
-        "transaction_id": "...",
-        "status": "created",
-        "program_name": "...",
-        "program_price": 100.0,
-        "date": "24.07.2025 - 16:01:20"
-    }
+        {
+            "id": 1,
+            "transaction_id": "...",
+            "status": "created",
+            "program_name": "...",
+            "program_price": 100.0,
+            "date": "25.07.2025 - 14:45:45"
+        }
     """
 
     def post(self, request):
@@ -47,7 +72,7 @@ class CreateWashOrderView(APIView):
                 return Response({'error': 'Программа не найдена'}, status=404)
 
             transaction_id = str(uuid.uuid4())
-            current_date = datetime.now().strftime('%d.%m.%Y - %H:%M:%S')
+            current_date = timezone.now().strftime('%d.%m.%Y - %H:%M:%S')
 
             order = WashOrder.objects.create(
                 program=program,
@@ -61,6 +86,7 @@ class CreateWashOrderView(APIView):
             print(f"[LOG] Новый заказ создан: ID={order.transaction_id}, Программа={program.name}, Цена={order.program_price}₽")
 
             return Response({
+                "id": order.id,
                 "transaction_id": transaction_id,
                 "status": order.status,
                 "program_name": program.name,
@@ -69,3 +95,117 @@ class CreateWashOrderView(APIView):
             }, status=201)
 
         return Response(serializer.errors, status=400)
+
+
+class WashOrderPaymentView(APIView):
+    """
+    Эндпоинт для обработки типа оплаты и запуска мойки.
+
+    Принимает JSON:
+        {
+            "payment_type": "cash"
+        }
+
+    Последовательность действий:
+    - Находит последний заказ
+    - Обновляет поле payment_type
+    - Меняет статус на "waiting_payment"
+    - Запускает соответствующую функцию оплаты (заглушка с таймером)
+    - Меняет статус на "payed"
+    - Запускает мойку (ещё один таймер)
+    - Меняет статус на "completed"
+    """
+
+    def post(self, request):
+        serializer = WashOrderPaymentSerializer(data=request.data)
+        if serializer.is_valid():
+            payment_type = serializer.validated_data['payment_type']
+
+            try:
+                order = WashOrder.objects.latest("id")
+            except WashOrder.DoesNotExist:
+                return Response({"error": "Нет ни одного заказа"}, status=404)
+
+            order.payment_type = payment_type
+            order.status = WashOrder.Status.WAITING_PAYMENT
+            order.save()
+            print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
+
+            # Запуск соответствующей функции оплаты
+            if payment_type == 'cash':
+                cash_payment()
+            elif payment_type == 'bank_card':
+                bank_card_payment()
+            elif payment_type == 'mobile_app':
+                mobile_app_payment()
+            elif payment_type == 'loyalty_card':
+                loyalty_card_payment()
+
+            # Обновляем статус на PAYED
+            order.status = WashOrder.Status.PAYED
+            order.save()
+            print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
+
+            # Запуск мойки
+            start_car_wash(order)
+
+            return Response({'message': 'Оплата прошла успешно, мойка запущена'}, status=200)
+        return Response(serializer.errors, status=400)
+
+
+def start_car_wash(order):
+    """
+    Заглушка для запуска мойки после оплаты.
+
+    Меняет статус заказа:
+    - processing
+    - completed (через 10 секунд)
+    """
+    print(f"[LOG] Запуск мойки по программе: {order.program.name}")
+    order.status = WashOrder.Status.PROCESSING
+    order.save()
+
+    time.sleep(10)
+
+    order.status = WashOrder.Status.COMPLETED
+    order.save()
+    print(f"[LOG] Мойка завершена. Статус заказа {order.transaction_id} обновлён: completed")
+
+# -------
+# ОПЛАТА: Заглушки под каждую функцию оплаты
+# -------
+
+def bank_card_payment():
+    """
+    Заглушка оплаты банковской картой.
+    """
+    print("[LOG] Выбран тип оплаты: bank_card")
+    time.sleep(5)
+    print("[LOG] Оплата банковской картой прошла успешно.")
+
+
+def cash_payment():
+    """
+    Заглушка оплаты наличными.
+    """
+    print("[LOG] Выбран тип оплаты: cash")
+    time.sleep(5)
+    print("[LOG] Оплата наличными прошла успешно.")
+
+
+def mobile_app_payment():
+    """
+    Заглушка оплаты через мобильное приложение.
+    """
+    print("[LOG] Выбран тип оплаты: mobile_app")
+    time.sleep(5)
+    print("[LOG] Оплата через мобильное приложение прошла успешно.")
+
+
+def loyalty_card_payment():
+    """
+    Заглушка оплаты картой лояльности.
+    """
+    print("[LOG] Выбран тип оплаты: loyalty_card")
+    time.sleep(5)
+    print("[LOG] Оплата по карте лояльности прошла успешно.")
