@@ -61,3 +61,36 @@ class WashOrder(models.Model):
 
     def __str__(self):
         return f"Order {self.transaction_id} [{self.program.name}] - {self.status}"
+
+
+class TerminalStatus(models.Model):
+    """
+    Модель TerminalStatus описывает параметры состояния терминала в момент времени.
+
+    Поля:
+        - identifier (int): Идентификатор записи (например, счётчик или внешний ID)
+        - name (str): Название терминала
+        - bay_number (int): Номер бокса
+        - gvl_cardnum (int): Количество карт
+        - gvl_cardsum (int): Сумма по картам
+        - gvl_sum (int): Общая сумма
+        - gvl_err (int): Количество ошибок
+        - gvl_time (int): Время работы
+        - gvl_source (int): Код источника
+    """
+    identifier = models.IntegerField()
+    name = models.CharField(max_length=255)
+    bay_number = models.IntegerField()
+    gvl_cardnum = models.IntegerField()
+    gvl_cardsum = models.IntegerField()
+    gvl_sum = models.IntegerField()
+    gvl_err = models.IntegerField()
+    gvl_time = models.IntegerField()
+    gvl_source = models.IntegerField()
+
+    def __str__(self):
+        return f"{self.name} (ID: {self.identifier})"
+
+    class Meta:
+        verbose_name = "Terminal status"
+        verbose_name_plural = "Terminal statuses"
