@@ -58,7 +58,19 @@ class WashOrder(models.Model):
         blank=True,
         help_text="Тип оплаты"
     )
-
+    
+    queue_position = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Порядковый номер в очереди"
+    )
+    
+    queue_number = models.CharField(
+        null=True,
+        blank=True,
+        help_text="Статичный номер в очереди (например, A-1)"
+    )
+ 
     def __str__(self):
         return f"Order {self.transaction_id} [{self.program.name}] - {self.status}"
 

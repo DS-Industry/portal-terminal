@@ -4,7 +4,6 @@ from rest_framework import status as drf_status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
-
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -18,6 +17,109 @@ from .serializers import (
 import uuid
 import time
 
+# ---------------------------
+# 📌 ФУНКЦИИ ДЛЯ ОЧЕРЕДИ
+# ---------------------------
+
+def is_car_wash_busy() -> bool:
+    """
+    Проверяет, занята ли мойка (есть заказ со статусом PROCESSING).
+    """
+    return WashOrder.objects.filter(status=WashOrder.Status.PROCESSING).exists()
+
+
+def reset_queue_if_needed():
+    """
+    Сбрасывает очередь, если все заказы завершены.
+    """
+    active_statuses = [
+        WashOrder.Status.CREATED,
+        WashOrder.Status.WAITING_PAYMENT,
+        WashOrder.Status.PAYED,
+        WashOrder.Status.PROCESSING,
+    ]
+    if not WashOrder.objects.filter(status__in=active_statuses).exists():
+        WashOrder.objects.update(queue_number=None, queue_position=None)
+        print("[LOG] Очередь сброшена — мойка и очередь пусты.")
+
+
+def get_next_queue_number() -> str:
+    """
+    Возвращает следующий уникальный номер очереди в формате A-<номер>.
+    """
+    existing = WashOrder.objects.exclude(queue_number__isnull=True).values_list('queue_number', flat=True)
+    max_num = 0
+    for q in existing:
+        try:
+            num = int(q.split("-")[1])
+            max_num = max(max_num, num)
+        except (IndexError, ValueError):
+            continue
+    return f"A-{max_num + 1}"
+
+
+def assign_queue_number_and_position() -> tuple[str, int]:
+    """
+    Назначает queue_number и queue_position новому заказу.
+
+    Возвращает:
+        (queue_number, queue_position)
+    """
+    queue = WashOrder.objects.filter(
+        queue_number__isnull=False,
+        status__in=[
+            WashOrder.Status.CREATED,
+            WashOrder.Status.WAITING_PAYMENT,
+            WashOrder.Status.PAYED,
+        ]
+    ).order_by("id")
+
+    if queue.count() >= 5:
+        raise ValueError("Очередь переполнена")
+
+    return get_next_queue_number(), queue.count() + 1
+
+
+def update_queue_positions_after_start():
+    """
+    После запуска мойки сдвигает позиции заказов в очереди.
+    """
+    queue = WashOrder.objects.filter(queue_position__isnull=False).order_by("queue_position")
+    for order in queue:
+        if order.queue_position == 1:
+            order.queue_position = 0
+        elif order.queue_position is not None and order.queue_position > 1:
+            order.queue_position -= 1
+        order.save()
+    print("[LOG] Очередь обновлена после запуска мойки.")
+
+
+def try_run_next_car_wash():
+    """
+    Если мойка свободна и есть заказ с позицией 0 и статусом PAYED — запускает мойку.
+    Если есть очередь, перед запуском обновляет позиции.
+    """
+    if is_car_wash_busy():
+        return
+
+    # Сначала обновим позиции: 1 → 0, 2 → 1 и т.д.
+    update_queue_positions_after_start()
+
+    # И только потом ищем того, у кого позиция = 0
+    next_order = WashOrder.objects.filter(
+        status=WashOrder.Status.PAYED,
+        queue_position=0
+    ).order_by("id").first()
+
+    if next_order:
+        print(f"[LOG] Заказ {next_order.transaction_id} запускается с позиции 0.")
+        start_car_wash(next_order)
+
+
+
+# ---------------------------
+# 📌 API-КЛАССЫ
+# ---------------------------
 
 class ProgramViewSet(viewsets.ModelViewSet):
     """
@@ -29,12 +131,8 @@ class ProgramViewSet(viewsets.ModelViewSet):
 
 class ProgramListView(APIView):
     """
-    Эндпоинт для получения списка программ мойки.
-
-    URL: /api/wash-programs/
-    Метод: GET
+    Эндпоинт получения списка программ мойки.
     """
-
     def get(self, request):
         programs = Program.objects.all().order_by('id')
         serializer = ProgramSerializer(programs, many=True)
@@ -59,44 +157,60 @@ class CreateWashOrderView(APIView):
             "program_name": "...",
             "program_price": 100.0,
             "date": "25.07.2025 - 14:45:45"
+            "queue_number": А-3,
+            "queue_position": 1
         }
     """
-
     def post(self, request):
         serializer = WashOrderCreateSerializer(data=request.data)
-        if serializer.is_valid():
-            program_id = serializer.validated_data['program_id']
-            ucn = serializer.validated_data.get('ucn', None)
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
 
+        program_id = serializer.validated_data['program_id']
+        ucn = serializer.validated_data.get('ucn')
+
+        try:
+            program = Program.objects.get(pk=program_id)
+        except Program.DoesNotExist:
+            return Response({'error': 'Программа не найдена'}, status=404)
+
+        reset_queue_if_needed()
+
+        queue_number = None
+        queue_position = None
+
+        if is_car_wash_busy():
             try:
-                program = Program.objects.get(pk=program_id)
-            except Program.DoesNotExist:
-                return Response({'error': 'Программа не найдена'}, status=404)
+                queue_number, queue_position = assign_queue_number_and_position()
+            except ValueError as e:
+                return Response({'error': str(e)}, status=400)
 
-            transaction_id = str(uuid.uuid4())
-            current_date = timezone.now().strftime('%d.%m.%Y - %H:%M:%S')
+        transaction_id = str(uuid.uuid4())
+        current_date = timezone.now().strftime('%d.%m.%Y - %H:%M:%S')
 
-            order = WashOrder.objects.create(
-                program=program,
-                program_price=program.price,
-                transaction_id=transaction_id,
-                date=current_date,
-                status=WashOrder.Status.CREATED,
-                ucn=ucn
-            )
+        order = WashOrder.objects.create(
+            program=program,
+            program_price=program.price,
+            transaction_id=transaction_id,
+            date=current_date,
+            status=WashOrder.Status.CREATED,
+            ucn=ucn,
+            queue_number=queue_number,
+            queue_position=queue_position
+        )
 
-            print(f"[LOG] Новый заказ создан: ID={order.transaction_id}, Программа={program.name}, Цена={order.program_price}₽")
+        print(f"[LOG] Новый заказ создан: ID={order.transaction_id}, Очередь={queue_number}, Позиция={queue_position}")
 
-            return Response({
-                "id": order.id,
-                "transaction_id": transaction_id,
-                "status": order.status,
-                "program_name": program.name,
-                "program_price": float(program.price),
-                "date": current_date
-            }, status=201)
-
-        return Response(serializer.errors, status=400)
+        return Response({
+            "id": order.id,
+            "transaction_id": transaction_id,
+            "status": order.status,
+            "program_name": program.name,
+            "program_price": float(program.price),
+            "date": current_date,
+            "queue_number": queue_number,
+            "queue_position": queue_position
+        }, status=201)
 
 
 class WashOrderPaymentView(APIView):
@@ -109,86 +223,79 @@ class WashOrderPaymentView(APIView):
             "payment_type": "cash"
         }
     """
-
     def post(self, request):
         serializer = WashOrderPaymentSerializer(data=request.data)
-        if serializer.is_valid():
-            transaction_id = serializer.validated_data['transaction_id']
-            payment_type = serializer.validated_data['payment_type']
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=400)
 
-            order = get_object_or_404(WashOrder, transaction_id=transaction_id)
+        transaction_id = serializer.validated_data['transaction_id']
+        payment_type = serializer.validated_data['payment_type']
+        order = get_object_or_404(WashOrder, transaction_id=transaction_id)
 
-            # Проверки статуса
-            if order.status == WashOrder.Status.COMPLETED:
-                return Response({"error": "Заказ уже завершён. Повторная оплата невозможна."},
-                                status=drf_status.HTTP_400_BAD_REQUEST)
+        if order.status in [WashOrder.Status.PAYED, WashOrder.Status.PROCESSING, WashOrder.Status.COMPLETED]:
+            return Response({'error': 'Невозможно оплатить заказ с текущим статусом.'}, status=400)
 
-            if order.status == WashOrder.Status.PAYED:
-                return Response({"error": "Заказ уже оплачен."},
-                                status=drf_status.HTTP_400_BAD_REQUEST)
+        order.status = WashOrder.Status.WAITING_PAYMENT
+        order.payment_type = payment_type
+        order.save()
+        print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
 
-            if order.status == WashOrder.Status.PROCESSING:
-                return Response({"error": "Мойка уже запущена. Повторная оплата невозможна."},
-                                status=drf_status.HTTP_400_BAD_REQUEST)
+        # Симуляция оплаты
+        if payment_type == 'cash':
+            cash_payment()
+        elif payment_type == 'bank_card':
+            bank_card_payment()
+        elif payment_type == 'mobile_app':
+            mobile_app_payment()
+        elif payment_type == 'loyalty_card':
+            loyalty_card_payment()
 
-            if order.status == WashOrder.Status.WAITING_PAYMENT:
-                return Response({"error": "Заказ уже в ожидании оплаты."},
-                                status=drf_status.HTTP_400_BAD_REQUEST)
+        order.status = WashOrder.Status.PAYED
+        order.save()
+        print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
 
-            # Обновляем статус и тип оплаты
-            order.payment_type = payment_type
-            order.status = WashOrder.Status.WAITING_PAYMENT
-            order.save()
-            print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
-
-            # Заглушка оплаты
-            if payment_type == 'cash':
-                cash_payment()
-            elif payment_type == 'bank_card':
-                bank_card_payment()
-            elif payment_type == 'mobile_app':
-                mobile_app_payment()
-            elif payment_type == 'loyalty_card':
-                loyalty_card_payment()
-
-            # Статус: Оплачено
-            order.status = WashOrder.Status.PAYED
-            order.save()
-            print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
-
-            # Запуск мойки (заглушка)
+        # Сценарий: мойка свободна и нет очереди — запускаем сразу
+        if order.queue_position is None and not is_car_wash_busy():
+            print(f"[LOG] Мойка свободна. Заказ {order.transaction_id} запускается сразу без очереди.")
             start_car_wash(order)
+        else:
+            try_run_next_car_wash()
 
-            return Response({'message': 'Оплата прошла успешно, мойка запущена'}, status=200)
+        return Response({'message': 'Оплата прошла успешно'}, status=200)
 
-        return Response(serializer.errors, status=drf_status.HTTP_400_BAD_REQUEST)
-
+# ---------------------------
+# 📌 МОЙКА
+# ---------------------------
 
 def start_car_wash(order):
     """
-    Заглушка для запуска мойки после оплаты.
-
-    Меняет статус заказа:
-    - processing
-    - completed (через 10 секунд)
+    Запускает мойку: статус processing → completed через 120 сек.
+    После завершения мойки — запускает следующий заказ (если есть).
     """
     print(f"[LOG] Запуск мойки по программе: {order.program.name}")
     order.status = WashOrder.Status.PROCESSING
     order.save()
 
-    time.sleep(10)
+    time.sleep(120)
 
     order.status = WashOrder.Status.COMPLETED
+    order.queue_position = None
+    order.queue_number = None
     order.save()
     print(f"[LOG] Мойка завершена. Статус заказа {order.transaction_id} обновлён: completed")
 
-# -------
-# ОПЛАТА: Заглушки под каждую функцию оплаты
-# -------
+    # 🔁 Переход к следующему заказу
+    print("[LOG] Начало следующей мойки через 5 сек...")
+    time.sleep(5)
+    try_run_next_car_wash()
+
+# ---------------------------
+# 📌 ОПЛАТА (каждая отдельно)
+# ---------------------------
 
 def bank_card_payment():
     """
-    Заглушка оплаты банковской картой.
+    Симуляция оплаты банковской картой.
     """
     print("[LOG] Выбран тип оплаты: bank_card")
     time.sleep(5)
@@ -197,7 +304,7 @@ def bank_card_payment():
 
 def cash_payment():
     """
-    Заглушка оплаты наличными.
+    Симуляция оплаты наличными.
     """
     print("[LOG] Выбран тип оплаты: cash")
     time.sleep(5)
@@ -206,7 +313,7 @@ def cash_payment():
 
 def mobile_app_payment():
     """
-    Заглушка оплаты через мобильное приложение.
+    Симуляция оплаты через мобильное приложение.
     """
     print("[LOG] Выбран тип оплаты: mobile_app")
     time.sleep(5)
@@ -215,7 +322,7 @@ def mobile_app_payment():
 
 def loyalty_card_payment():
     """
-    Заглушка оплаты картой лояльности.
+    Симуляция оплаты по карте лояльности.
     """
     print("[LOG] Выбран тип оплаты: loyalty_card")
     time.sleep(5)

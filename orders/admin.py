@@ -14,15 +14,21 @@ class ProgramAdmin(admin.ModelAdmin):
 
 @admin.register(WashOrder)
 class WashOrderAdmin(admin.ModelAdmin):
-    """
-    Настройка отображения заказов в админке.
-    Показываем ID, транзакцию, дату, статус и цену.
-    """
-    list_display = ('program', 'program_price', 'date', 'status', 'ucn', 'transaction_id', 'id')
+    list_display = (
+        'id',
+        'program',
+        'program_price',
+        'date',
+        'status',
+        'payment_type',
+        'queue_number',
+        'queue_position',
+        'transaction_id',
+        'ucn',
+    )
     ordering = ('-id',)
-    list_filter = ('status', 'program')
-    search_fields = ('transaction_id', 'ucn')
-
+    list_filter = ('status', 'program', 'payment_type')
+    search_fields = ('transaction_id', 'queue_number', 'ucn')
 
 @admin.register(TerminalStatus)
 class TerminalStatusAdmin(admin.ModelAdmin):
