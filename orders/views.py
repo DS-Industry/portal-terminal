@@ -7,7 +7,7 @@ from rest_framework.response import Response
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from .models import Program, WashOrder
+from .models import Program, WashOrder, WashSettings
 from .serializers import (
     ProgramSerializer,
     WashOrderCreateSerializer,
@@ -179,12 +179,6 @@ class CreateWashOrderView(APIView):
         queue_number = None
         queue_position = None
 
-        if is_car_wash_busy():
-            try:
-                queue_number, queue_position = assign_queue_number_and_position()
-            except ValueError as e:
-                return Response({'error': str(e)}, status=400)
-
         transaction_id = str(uuid.uuid4())
         current_date = timezone.now().strftime('%d.%m.%Y - %H:%M:%S')
 
@@ -235,6 +229,7 @@ class WashOrderPaymentView(APIView):
         if order.status in [WashOrder.Status.PAYED, WashOrder.Status.PROCESSING, WashOrder.Status.COMPLETED]:
             return Response({'error': 'Невозможно оплатить заказ с текущим статусом.'}, status=400)
 
+        # Устанавливаем статус "ожидание оплаты"
         order.status = WashOrder.Status.WAITING_PAYMENT
         order.payment_type = payment_type
         order.save()
@@ -250,11 +245,25 @@ class WashOrderPaymentView(APIView):
         elif payment_type == 'loyalty_card':
             loyalty_card_payment()
 
+        # После успешной оплаты — статус "оплачен"
         order.status = WashOrder.Status.PAYED
+
+        if is_car_wash_busy():
+            try:
+                queue_number, queue_position = assign_queue_number_and_position()
+                order.queue_number = queue_number
+                order.queue_position = queue_position
+                print(f"[LOG] Заказ {order.transaction_id} поставлен в очередь: номер={queue_number}, позиция={queue_position}")
+            except ValueError as e:
+                return Response({'error': str(e)}, status=400)
+        else:
+            print(f"[LOG] Мойка свободна. Заказ {order.transaction_id} будет запускаться немедленно.")
+
+        # Сохраняем все обновления
         order.save()
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
 
-        # Сценарий: мойка свободна и нет очереди — запускаем сразу
+        # Запуск мойки, если можно
         if order.queue_position is None and not is_car_wash_busy():
             print(f"[LOG] Мойка свободна. Заказ {order.transaction_id} запускается сразу без очереди.")
             start_car_wash(order)
@@ -262,6 +271,7 @@ class WashOrderPaymentView(APIView):
             try_run_next_car_wash()
 
         return Response({'message': 'Оплата прошла успешно'}, status=200)
+
 
 # ---------------------------
 # 📌 МОЙКА
@@ -285,8 +295,9 @@ def start_car_wash(order):
     print(f"[LOG] Мойка завершена. Статус заказа {order.transaction_id} обновлён: completed")
 
     # 🔁 Переход к следующему заказу
-    print("[LOG] Начало следующей мойки через 5 сек...")
-    time.sleep(5)
+    delay = WashSettings.objects.first().delay_between_washes if WashSettings.objects.exists() else 5
+    print(f"[LOG] Начало следующей мойки через {delay} сек...")
+    time.sleep(delay)
     try_run_next_car_wash()
 
 # ---------------------------

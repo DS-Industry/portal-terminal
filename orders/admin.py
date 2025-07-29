@@ -1,5 +1,5 @@
 from django.contrib import admin
-from .models import Program, WashOrder, TerminalStatus
+from .models import Program, WashOrder, TerminalStatus, WashSettings
 
 
 @admin.register(Program)
@@ -43,3 +43,7 @@ class TerminalStatusAdmin(admin.ModelAdmin):
     )
     ordering = ('identifier',)
     search_fields = ('name',)
+
+@admin.register(WashSettings)
+class WashSettingsAdmin(admin.ModelAdmin):
+    list_display = ('delay_between_washes',)

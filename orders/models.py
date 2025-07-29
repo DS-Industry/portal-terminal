@@ -1,4 +1,5 @@
 import uuid
+from django.core.exceptions import ValidationError
 from django.db import models
 from datetime import datetime
 
@@ -106,3 +107,28 @@ class TerminalStatus(models.Model):
     class Meta:
         verbose_name = "Terminal status"
         verbose_name_plural = "Terminal statuses"
+
+
+class WashSettings(models.Model):
+    """
+    Глобальные настройки мойки.
+    """
+    delay_between_washes = models.PositiveIntegerField(
+        default=5, 
+        help_text="Задержка перед запуском следующей мойки (в секундах)"
+        )
+
+    def clean(self):
+        if WashSettings.objects.exists() and not self.pk:
+            raise ValidationError("Разрешён только один экземпляр WashSettings.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return "Глобальные настройки мойки"
+
+    class Meta:
+        verbose_name = "Настройки мойки"
+        verbose_name_plural = "Настройки мойки"
