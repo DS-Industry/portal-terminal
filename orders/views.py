@@ -1,24 +1,82 @@
 # orders/views.py
+import uuid
+import time
+import json
+import requests
+import threading
+import os
+
+from dotenv import load_dotenv
+
 from rest_framework import viewsets
 from rest_framework import status as drf_status
 from rest_framework.views import APIView
 from rest_framework.response import Response
 
+from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
-from .models import Program, WashOrder, WashSettings
+from .models import (
+    Program,
+    WashOrder,
+    WashSettings,
+    TerminalStatus,
+    ReceiptServerConfig
+    )
 from .serializers import (
     ProgramSerializer,
     WashOrderCreateSerializer,
     WashOrderPaymentSerializer
 )
 
-import uuid
-import time
+load_dotenv()
+# ---------------------------
+# ФУНКЦИЯ ОТПРАВКИ QR-ЗАПРОСА
+# ---------------------------
+
+def send_receipt_request(order: WashOrder) -> str | None:
+    """
+    Отправляет POST-запрос на сервер печати чека.
+    Возвращает строку QR-кода или None при ошибке.
+    """
+    try:
+        server_conf = ReceiptServerConfig.objects.first()
+        if not server_conf:
+            print("[QR] Не настроен IP-адрес кассы в ReceiptServerConfig.")
+            return None
+
+        bay_row = TerminalStatus.objects.first()
+        if not bay_row:
+            print("[QR] В таблице TerminalStatus нет записей.")
+            return None
+
+        payload = {
+            "name": "1",  # всегда "1" = робот
+            "bay": str(bay_row.bay_number),
+            "sum": str(order.program_price),
+            "type": "0" if order.payment_type == "cash" else "1"
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "Data": json.dumps(payload)
+        }
+
+        url = f"http://{server_conf.ip_address}/create-check"
+        print(f"[QR] Отправка запроса на чек: {url} с данными: {payload}")
+
+        response = requests.post(url, headers=headers, timeout=5)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("qr")
+    except Exception as e:
+        print(f"[QR] Ошибка при отправке чека: {e}")
+        return None
+
 
 # ---------------------------
-# 📌 ФУНКЦИИ ДЛЯ ОЧЕРЕДИ
+# ФУНКЦИИ ДЛЯ ОЧЕРЕДИ
 # ---------------------------
 
 def is_car_wash_busy() -> bool:
@@ -118,7 +176,7 @@ def try_run_next_car_wash():
 
 
 # ---------------------------
-# 📌 API-КЛАССЫ
+# API-КЛАССЫ
 # ---------------------------
 
 class ProgramViewSet(viewsets.ModelViewSet):
@@ -248,6 +306,14 @@ class WashOrderPaymentView(APIView):
         # После успешной оплаты — статус "оплачен"
         order.status = WashOrder.Status.PAYED
 
+        # Попытка получить QR-код
+        qr_code = send_receipt_request(order)
+        if qr_code:
+            order.qr_code = qr_code
+            print(f"[QR] Чек успешно получен: {qr_code}")
+        else:
+            print(f"[QR] Не удалось получить чек.")
+        
         if is_car_wash_busy():
             try:
                 queue_number, queue_position = assign_queue_number_and_position()
@@ -274,7 +340,7 @@ class WashOrderPaymentView(APIView):
 
 
 # ---------------------------
-# 📌 МОЙКА
+# МОЙКА
 # ---------------------------
 
 def start_car_wash(order):
@@ -286,7 +352,7 @@ def start_car_wash(order):
     order.status = WashOrder.Status.PROCESSING
     order.save()
 
-    time.sleep(120)
+    time.sleep(60)
 
     order.status = WashOrder.Status.COMPLETED
     order.queue_position = None
@@ -301,7 +367,7 @@ def start_car_wash(order):
     try_run_next_car_wash()
 
 # ---------------------------
-# 📌 ОПЛАТА (каждая отдельно)
+# ОПЛАТА (каждая отдельно)
 # ---------------------------
 
 def bank_card_payment():
