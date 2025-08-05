@@ -1,7 +1,6 @@
 import uuid
 from django.core.exceptions import ValidationError
 from django.db import models
-from datetime import datetime
 
 
 class Program(models.Model):
@@ -59,8 +58,8 @@ class WashOrder(models.Model):
 
     program = models.ForeignKey(Program, on_delete=models.CASCADE)
     program_price = models.DecimalField(max_digits=8, decimal_places=2)
-    transaction_id = models.CharField(max_length=100, unique=True)
-    date = models.CharField(max_length=30)
+    transaction_id = models.CharField(max_length=100, unique=True, verbose_name="ID транзакции")
+    date = models.DateTimeField(auto_now_add=True, verbose_name="Дата и время создания")
     status = models.CharField(max_length=50, choices=Status.choices, default=Status.CREATED)
     ucn = models.CharField(max_length=50, null=True, blank=True, verbose_name="Номер карты лояльности")
     payment_type = models.CharField(
@@ -90,9 +89,11 @@ class WashOrder(models.Model):
     )
     
     gvl_source = models.IntegerField(null=True, blank=True)
- 
+    is_mobile_payment = models.BooleanField(default=False, verbose_name="Оплата через мобильное приложение")
+    
     def __str__(self):
-        return f"Order {self.transaction_id} [{self.program.name}] - {self.status}"
+        payment_type_str = " (Моб.)" if self.is_mobile_payment else ""
+        return f"Заказ {self.transaction_id}{payment_type_str} - {self.program.name}"
 
     class Meta:
         verbose_name = "Таблица заказов"

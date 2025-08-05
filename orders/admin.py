@@ -1,4 +1,7 @@
 from django.contrib import admin
+from django.utils import timezone
+from django.utils.dateformat import format as date_format
+
 from .models import (
     Program,
     WashOrder,
@@ -26,20 +29,24 @@ class ProgramAdmin(admin.ModelAdmin):
 
 @admin.register(WashOrder)
 class WashOrderAdmin(admin.ModelAdmin):
+    """Настройка отображения таблицы заказов в админке."""
+    
+    def formatted_date(self, obj):
+        """Форматирует дату в 'DD.MM.YYYY - HH:MM:SS'"""
+        if obj.date:
+            local_date = timezone.localtime(obj.date) if timezone.is_aware(obj.date) else obj.date
+            return date_format(local_date, 'd.m.Y - H:i:s')
+        return "-"
+    formatted_date.short_description = 'Дата и время создания'
+    formatted_date.admin_order_field = 'date'
+    
     list_display = (
-        'id',
-        'program',
-        'program_price',
-        'date',
-        'status',
-        'payment_type',
-        'queue_number',
-        'queue_position',
-        'transaction_id',
-        'ucn',
+        'id', 'program', 'program_price', 'formatted_date', 'status',
+        'payment_type', 'queue_number', 'queue_position', 
+        'transaction_id', 'ucn',
     )
     ordering = ('-id',)
-    list_filter = ('status', 'program', 'payment_type')
+    list_filter = ('status', 'program', 'payment_type', 'is_mobile_payment')
     search_fields = ('transaction_id', 'queue_number', 'ucn')
 
 
