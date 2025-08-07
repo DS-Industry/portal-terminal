@@ -5,7 +5,6 @@ import requests
 import json
 import time
 import uuid
-# import threading # Убрано, как и требовалось
 import environ
 from pathlib import Path
 from django.db import transaction
@@ -81,7 +80,6 @@ def send_prices_to_dscloud():
     """
     Отправляет данные о ценах программ на сервер DScloud.
     Данные отправляются раз в минуту.
-    Эта задача выполняется НЕЗАВИСИМО от состояния мойки.
     """
     try:
         TerminalStatus = apps.get_model('orders', 'TerminalStatus')
@@ -130,17 +128,22 @@ def send_prices_to_dscloud():
 _gvl_sent_for = None
 _last_processing_order_id = None
 _last_processed_cardsum = 0
+# --- НОВАЯ ГЛОБАЛЬНАЯ ПЕРЕМЕННАЯ для мобильной оплаты ---
+# Флаг, сигнализирующий, что сумма для мобильного заказа была отправлена и подтверждена
+_mobile_order_confirmed = False
+# --------------------------------------------------------
 
 def dscloud_job():
     """
     Основная фоновая задача для APScheduler.
     Отправляет данные состояния терминала каждые 5 секунд.
     Обрабатывает оплату через мобильное приложение.
+    Обрабатывает заказы в статусе PAYED для отправки суммы и запуска.
     Эта задача НЕ ВЫПОЛНЯЕТСЯ, если мойка занята (любой заказ в PROCESSING).
     """
-    global _gvl_sent_for, _last_processing_order_id, _last_processed_cardsum
-
-    max_retries = 3
+    global _gvl_sent_for, _last_processing_order_id, _last_processed_cardsum, _mobile_order_confirmed
+    
+    max_retries = 3 
 
     try:
         WashOrder = apps.get_model('orders', 'WashOrder')
@@ -149,116 +152,75 @@ def dscloud_job():
 
         # --- ГЛАВНОЕ УСЛОВИЕ: ЕСЛИ МОЙКА ЗАНЯТА, НЕ ВЫПОЛНЯЕМ НИЧЕГО ---
         any_processing_order = WashOrder.objects.filter(status=WashOrder.Status.PROCESSING).first()
-
+        
         if any_processing_order:
             print(f"[DS] Мойка занята (заказ {any_processing_order.transaction_id}). Основной пинг DScloud приостановлен.")
-            # Примечание: Сообщение "Execution of job ... skipped: maximum number of running instances reached (1)"
-            # может появляться здесь, если start_car_wash (вызванная ранее) все еще выполняется (time.sleep).
-            # Это нормально, если start_car_wash блокирует поток.
+            # Сбрасываем флаг мобильной оплаты, если мойка занята
+            _mobile_order_confirmed = False
             return
         # -----------------------------------------------------------------------
 
-        # --- ЕСЛИ МОЙКА СВОБОДНА, ВЫПОЛНЯЕМ ВСЮ ЛОГИКУ ---
         print("[DS] Мойка свободна. Выполняем пинг и проверку оплаты.")
 
-        # --- ПРОВЕРКА НА ЗАВЕРШЕННЫЕ ЗАКАЗЫ И ОБНУЛЕНИЕ GVL_SUM ---
-        # Проверяем, были ли недавно завершенные заказы, требующие обнуления gvl_sum.
-        # Это критично для мобильных заказов, которые не управляются логикой _gvl_sent_for.
-        ts = TerminalStatus.objects.first()
-        if ts and ts.gvl_sum != 0:
-            # gvl_sum не равен 0, но активных заказов в PROCESSING нет.
-            # Это означает, что предыдущая мойка (терминальная или мобильная) завершена,
-            # но DScloud не был уведомлен об этом (gvl_sum не обнулён).
-            print(f"[DS] Нет активных заказов, но gvl_sum={ts.gvl_sum}. Обнуляем GVL_SUM в БД.")
-            with transaction.atomic():
-                ts.gvl_sum = 0
-                ts.save()
-                ts.refresh_from_db()
-            print(f"[DS] GVL_SUM обнулён в БД.")
-
-            # Отправляем обнуленные данные и дожидаемся подтверждения от DScloud,
-            # чтобы DScloud перешёл в статус "Free".
-            confirmed_zero = False
-            retries = 0
-            while not confirmed_zero and retries < max_retries:
-                response_data = send_data_to_dscloud()
-                if response_data and response_data.get('GVLSum') == '0':
-                    print(f"[DS] Подтверждение обнуления суммы от DScloud получено. DScloud должен показать статус Free.")
-                    confirmed_zero = True
-                    # Сбрасываем флаги терминальных заказов, если они были установлены.
-                    # Это важно для корректной работы логики терминальных заказов в будущем.
-                    _gvl_sent_for = None
-                    _last_processing_order_id = None
-                else:
-                    print(f"[DS] Ожидание подтверждения обнуления суммы от DScloud... (Попытка {retries + 1}/{max_retries})")
-                    if response_data:
-                        print(f"[DS] Получен ответ: {response_data}")
-                    retries += 1
-                    if retries == max_retries:
-                        print(f"[DS] ОШИБКА: Не удалось получить подтверждение обнуления суммы от DScloud после {max_retries} попыток.")
-                        # Продолжаем выполнение. Следующая итерация снова попытается обнулить.
-            # ВАЖНО: Не прерываем выполнение основной логики, если обнуление не удалось.
-            # Лучше продолжить пинг и попробовать снова на следующем шаге.
-            # return # Не используем return здесь
-
         # --- ОСНОВНОЙ ПИНГ DScloud ---
-        # Отправляем данные и получаем ответ ТОЛЬКО если мойка свободна.
-        # На этом этапе gvl_sum должен быть 0 (если обнуление прошло успешно выше).
         response_data = send_data_to_dscloud()
-
+        
         # --- ОБРАБОТКА ОПЛАТЫ ЧЕРЕЗ МОБИЛЬНОЕ ПРИЛОЖЕНИЕ ---
         if response_data:
             gvl_cardsum = int(response_data.get('GVLCardSum', 0))
             gvl_cardnum = int(response_data.get('GVLCardNum', 0))
             gvl_source = int(response_data.get('GVLSource', 0))
-
+            
             if gvl_cardsum > 0 and gvl_cardsum != _last_processed_cardsum:
                 print(f"[DS-MOBILE] Обнаружена оплата через мобильное приложение: сумма {gvl_cardsum}, карта {gvl_cardnum}, источник {gvl_source}")
-
-                # Проверяем еще раз, свободна ли мойка.
-                # Это важно, если состояние могло измениться между проверками.
+                
+                # Проверяем, свободна ли мойка (еще раз, на всякий случай)
                 if not WashOrder.objects.filter(status=WashOrder.Status.PROCESSING).exists():
                     try:
                         program = Program.objects.get(price=gvl_cardsum)
                         print(f"[DS-MOBILE] Найдена программа '{program.name}' для суммы {gvl_cardsum}")
-
-                        # --- ЛОГИКА ОТПРАВКИ СУММЫ НА DSCLOUD ДО СОЗДАНИЯ ЗАКАЗА ---
-                        # Чтобы DScloud показал статус "Busy", нужно сначала отправить сумму.
-                        if ts: # Убедимся, что TerminalStatus существует
-                            # 1. Обновляем GVLSum в нашей БД
+                        
+                        # --- КРИТИЧЕСКИ ВАЖНЫЙ ЭТАП ---
+                        # 1. Обновляем GVLSum в нашей БД
+                        ts = TerminalStatus.objects.first()
+                        if ts:
                             ts.gvl_sum = gvl_cardsum
                             ts.save()
                             print(f"[DS-MOBILE] GVL_SUM обновлён в БД на сумму заказа: {gvl_cardsum}")
-
-                        # 2. Отправляем сумму на DScloud и ждем подтверждения
+                        
+                        # 2. Отправляем сумму на DScloud и ЖДЕМ ПОДТВЕРЖДЕНИЯ
                         confirmed_sum = False
                         retries = 0
                         while not confirmed_sum and retries < max_retries:
                             # Отправляем текущее состояние (с обновленным gvl_sum)
-                            confirm_response = send_data_to_dscloud()
+                            confirm_response = send_data_to_dscloud() 
                             if confirm_response and confirm_response.get('GVLSum') == str(gvl_cardsum):
                                 print(f"[DS-MOBILE] Подтверждение получения суммы {gvl_cardsum} от DScloud получено. DScloud должен показать статус Busy.")
                                 confirmed_sum = True
+                                _mobile_order_confirmed = True # Устанавливаем флаг
                             else:
                                 print(f"[DS-MOBILE] Ожидание подтверждения суммы {gvl_cardsum} от DScloud... (Попытка {retries + 1}/{max_retries})")
                                 if confirm_response:
                                     print(f"[DS-MOBILE] Получен ответ: {confirm_response}")
                                 retries += 1
-
+                        
                         if not confirmed_sum:
-                            print(f"[DS-MOBILE] ОШИБКА: Не удалось получить подтверждение суммы {gvl_cardsum} от DScloud после {max_retries} попыток.")
-                            # Откатываем gvl_sum в 0, чтобы не мешать дальнейшей работе
-                            if ts:
+                             print(f"[DS-MOBILE] ОШИБКА: Не удалось получить подтверждение суммы {gvl_cardsum} от DScloud после {max_retries} попыток.")
+                             # Откатываем gvl_sum в 0, чтобы не мешать дальнейшей работе
+                             if ts:
                                 ts.gvl_sum = 0
                                 ts.save()
                                 print(f"[DS-MOBILE] Откат: GVL_SUM обнулён в БД из-за ошибки подтверждения.")
-                            # Сбрасываем gvl_cardsum в TerminalStatus, чтобы DScloud не продолжал слать его
-                            ts.gvl_cardsum = 0
-                            ts.save()
-                            print(f"[DS-MOBILE] Сброшено gvl_cardsum в TerminalStatus из-за ошибки.")
-                            return # Прерываем обработку мобильной оплаты
-
-                        # 3. Создаем заказ и запускаем мойку только после подтверждения от DScloud
+                             # Сбрасываем gvl_cardsum в TerminalStatus
+                             if ts:
+                                ts.gvl_cardsum = 0
+                                ts.save()
+                                print(f"[DS-MOBILE] Сброшено gvl_cardsum в TerminalStatus из-за ошибки.")
+                             _mobile_order_confirmed = False # Сбрасываем флаг
+                             return # Прерываем обработку мобильной оплаты
+                        # -------------------------------
+                        
+                        # 3. Создаем заказ и запускаем мойку только после подтверждения
                         transaction_id_for_mobile = f"mobile_app_{uuid.uuid4()}"
                         new_order = None
                         with transaction.atomic():
@@ -266,109 +228,217 @@ def dscloud_job():
                                 program=program,
                                 program_price=gvl_cardsum,
                                 transaction_id=transaction_id_for_mobile,
-                                status=WashOrder.Status.PROCESSING,
+                                status=WashOrder.Status.PROCESSING, # Сразу в PROCESSING
                                 ucn=str(gvl_cardnum) if gvl_cardnum else "",
                                 payment_type=WashOrder.PaymentType.MOBILE_APP,
                                 gvl_source=gvl_source,
-                                is_mobile_payment=True,
+                                is_mobile_payment=True, # Устанавливаем флаг
                             )
                             print(f"[DS-MOBILE] Создан заказ для мобильного приложения: ID={new_order.transaction_id}, Программа={program.name}")
-                            # Поле 'date' будет заполнено автоматически благодаря auto_now_add=True
-
+                            # Поле 'date' будет заполнено автоматически
+                            
                             # Сбрасываем gvl_cardsum в TerminalStatus, так как оплата обработана
-                            # и мы не хотим, чтобы DScloud продолжал присылать её.
-                            ts.gvl_cardsum = 0
-                            ts.save()
-                            print(f"[DS-MOBILE] Сброшено gvl_cardsum в TerminalStatus.")
-
-                        # Обновляем глобальную переменную для отслеживания последней обработанной оплаты
+                            if ts:
+                                ts.gvl_cardsum = 0
+                                ts.save()
+                                print(f"[DS-MOBILE] Сброшено gvl_cardsum в TerminalStatus.")
+                        
+                        # Обновляем глобальную переменную
                         _last_processed_cardsum = gvl_cardsum
-
+                        
                         # 4. Запуск мойки НЕМЕДЛЕННО (БЕЗ THREADING)
                         if new_order:
                             print(f"[DS-MOBILE] Немедленный запуск мойки для заказа {new_order.transaction_id}")
                             try:
-                                # Предполагается, что start_car_wash импортирована
                                 start_car_wash(new_order)
                                 print(f"[DS-MOBILE] Функция start_car_wash вызвана для заказа {new_order.transaction_id}")
                             except Exception as e:
                                 print(f"[DS-MOBILE] ОШИБКА при вызове start_car_wash для заказа {new_order.transaction_id}: {e}")
-                        # --------------------
-
+                            
                     except Program.DoesNotExist:
                         print(f"[DS-MOBILE] ОШИБКА: Не найдена программа с ценой {gvl_cardsum}. Оплата проигнорирована.")
-                        # Сбрасываем gvl_cardsum в TerminalStatus в случае ошибки,
-                        # чтобы DScloud не продолжал слать её.
+                        # Сбрасываем gvl_cardsum в TerminalStatus в случае ошибки
+                        ts = TerminalStatus.objects.first()
                         if ts:
                             ts.gvl_cardsum = 0
                             ts.save()
                             print(f"[DS-MOBILE] Сброшено gvl_cardsum в TerminalStatus из-за ошибки.")
+                        _mobile_order_confirmed = False # Сбрасываем флаг
                 else:
-                    print(f"[DS-MOBILE] Мойка стала занята после получения данных. Оплата через мобильное приложение отклонена.")
+                    print(f"[DS-MOBILE] Мойка стала занята. Оплата через мобильное приложение отклонена.")
             elif gvl_cardsum > 0 and gvl_cardsum == _last_processed_cardsum:
-                print(f"[DS-MOBILE] Получено повторное значение gvl_cardsum ({gvl_cardsum}), игнорируем.")
+                # Это может быть повторный ответ с тем же значением, игнорируем
+                # но если флаг не установлен, возможно, подтверждение не было получено ранее
+                if not _mobile_order_confirmed:
+                     print(f"[DS-MOBILE] Повторное значение gvl_cardsum ({gvl_cardsum}) без подтверждения. Возможно, ожидание подтверждения не завершено.")
+                else:
+                     print(f"[DS-MOBILE] Получено повторное значение gvl_cardsum ({gvl_cardsum}), игнорируем.")
             # else: gvl_cardsum == 0, ничего не делаем
         # --- КОНЕЦ ОБРАБОТКИ ОПЛАТЫ ЧЕРЕЗ МОБИЛЬНОЕ ПРИЛОЖЕНИЕ ---
 
-        # --- ЛОГИКА ОБРАБОТКИ ЗАКАЗОВ ТЕРМИНАЛА ---
-        # Эта логика обрабатывает заказы, созданные через терминал (не мобильные).
-        # Она срабатывает, если:
-        # 1. Нет активных заказов (мы дошли до этого места).
-        # 2. gvl_sum уже обнулён (проверили выше или он был 0 изначально).
-        # 3. Появился новый терминальный заказ в PROCESSING.
+        # --- ОБРАБОТКА ЗАКАЗОВ В СТАТУСЕ PAYED (cash/bank_card/loyalty_card) ---
+        # Ищем заказы в статусе PAYED, которые нужно запустить
+        # Для немедленного запуска (без очереди) ищем заказы с queue_position=None
+        # Для запуска из очереди логика должна быть в try_run_next_car_wash или аналоге.
+        # Здесь мы обрабатываем только немедленный запуск.
+        
+        payed_order_to_start = WashOrder.objects.filter(
+            status=WashOrder.Status.PAYED,
+            queue_position=None
+        ).order_by("id").first()
+        
+        if payed_order_to_start:
+             print(f"[DS-PAYED] Обнаружен заказ в статусе PAYED для немедленного запуска: {payed_order_to_start.transaction_id}")
+             expected_sum = int(payed_order_to_start.program_price)
 
-        # Получаем терминальные заказы в PROCESSING (исключаем мобильные)
-        terminal_processing_order = WashOrder.objects.exclude(is_mobile_payment=True).filter(status=WashOrder.Status.PROCESSING).first()
-        current_terminal_processing_order_id = str(terminal_processing_order.transaction_id) if terminal_processing_order else None
+             # --- ОСОБАЯ ЛОГИКА ДЛЯ LOYALTY_CARD ---
+             # Если это оплата по карте лояльности, добавляем 5-секундную задержку
+             if payed_order_to_start.payment_type == WashOrder.PaymentType.LOYALTY_CARD:
+                 print(f"[DS-PAYED] Заказ {payed_order_to_start.transaction_id} оплачен картой лояльности. Ожидание 5 секунд перед запуском.")
+                 time.sleep(5) # Ждем 5 секунд как указано в ТЗ
+                 print(f"[DS-PAYED] Завершено 5-секундное ожидание для заказа {payed_order_to_start.transaction_id}")
+             # ---------------------------------------
 
-        if terminal_processing_order and current_terminal_processing_order_id != _last_processing_order_id:
-            print(f"[DS] Новый или измененный заказ терминала в статусе PROCESSING: {current_terminal_processing_order_id}")
-            expected_sum = int(terminal_processing_order.program_price)
+             ts = TerminalStatus.objects.first()
+             if ts:
+                 # 1) Обновить поле gvl_sum в БД
+                 with transaction.atomic():
+                     ts.gvl_sum = expected_sum
+                     ts.save()
+                     ts.refresh_from_db()
 
-            ts = TerminalStatus.objects.first()
-            if ts:
-                with transaction.atomic():
-                    ts.gvl_sum = expected_sum
-                    ts.save()
-                    ts.refresh_from_db()
+                 print(f"[DS-PAYED] GVL_SUM обновлён в БД на сумму заказа: {expected_sum}")
 
-                print(f"[DS] GVL_SUM обновлён в БД на сумму заказа: {expected_sum}")
+                 # 2) Отправить данные на DScloud и дождаться подтверждения
+                 confirmed = False
+                 retries = 0
+                 while not confirmed and retries < max_retries:
+                     response_data = send_data_to_dscloud()
+                     if response_data and response_data.get('GVLSum') == str(expected_sum):
+                         print(f"[DS-PAYED] Подтверждение получения суммы {expected_sum} от DScloud получено.")
+                         confirmed = True
+                         # _gvl_sent_for используется для терминальных заказов, но здесь не критично
+                         # _gvl_sent_for = str(payed_order_to_start.transaction_id) 
+                         
+                         # 3) После подтверждения - ЗАПУСКАЕМ МОЙКУ
+                         print(f"[DS-PAYED] Немедленный запуск мойки для заказа {payed_order_to_start.transaction_id}")
+                         try:
+                             start_car_wash(payed_order_to_start)
+                             print(f"[DS-PAYED] Функция start_car_wash вызвана для заказа {payed_order_to_start.transaction_id}")
+                         except Exception as e:
+                             print(f"[DS-PAYED] ОШИБКА при вызове start_car_wash для заказа {payed_order_to_start.transaction_id}: {e}")
+                         
+                     else:
+                         print(f"[DS-PAYED] Ожидание подтверждения суммы {expected_sum} от DScloud... (Попытка {retries + 1}/{max_retries})")
+                         if response_data:
+                             print(f"[DS-PAYED] Получен ответ: {response_data}")
+                         retries += 1
+                         if retries == max_retries:
+                             print(f"[DS-PAYED] ОШИБКА: Не удалось получить подтверждение суммы {expected_sum} от DScloud после {max_retries} попыток.")
+                             # Откатываем gvl_sum в 0, чтобы не мешать дальнейшей работе
+                             if ts:
+                                ts.gvl_sum = 0
+                                ts.save()
+                                print(f"[DS-PAYED] Откат: GVL_SUM обнулён в БД из-за ошибки подтверждения.")
+                             # Не запускаем мойку
+                             
+        # --- КОНЕЦ ОБРАБОТКИ ЗАКАЗОВ В СТАТУСЕ PAYED ---
+            
+        # --- ЛОГИКА ОБРАБОТКИ ЗАКАЗОВ В СТАТУСЕ PROCESSING (уже запущенных) ---
+        # Эта логика срабатывает, если заказ был запущен НЕ через этот ping_dscloud.py
+        # (например, напрямую в views.py, что теперь запрещено, но на случай race condition)
+        processing_order = WashOrder.objects.filter(status=WashOrder.Status.PROCESSING).first()
+        current_processing_order_id = str(processing_order.transaction_id) if processing_order else None
 
-                confirmed = False
-                retries = 0
-                while not confirmed and retries < max_retries:
-                    response_data = send_data_to_dscloud()
-                    if response_data and response_data.get('GVLSum') == str(expected_sum):
-                        print(f"[DS] Подтверждение получения суммы {expected_sum} от DScloud получено.")
-                        confirmed = True
-                        _gvl_sent_for = current_terminal_processing_order_id
-                        _last_processing_order_id = current_terminal_processing_order_id
-                    else:
-                        print(f"[DS] Ожидание подтверждения суммы {expected_sum} от DScloud... (Попытка {retries + 1}/{max_retries})")
-                        if response_data:
-                            print(f"[DS] Получен ответ: {response_data}")
-                        retries += 1
-                        if retries == max_retries:
-                            print(f"[DS] ОШИБКА: Не удалось получить подтверждение суммы {expected_sum} от DScloud после {max_retries} попыток.")
+        if processing_order and current_processing_order_id != _last_processing_order_id:
+             print(f"[DS-PROCESSING] Обнаружен заказ в статусе PROCESSING: {current_processing_order_id}")
+             expected_sum = int(processing_order.program_price)
 
-        # Условие `elif not terminal_processing_order and _gvl_sent_for:` больше не нужно,
-        # так как обнуление происходит в общей секции проверки "gvl_sum != 0" в начале функции.
-        # Это делает логику более надежной для всех типов заказов.
+             ts = TerminalStatus.objects.first()
+             if ts:
+                 # 1) Обновить поле gvl_sum в БД
+                 with transaction.atomic():
+                     ts.gvl_sum = expected_sum
+                     ts.save()
+                     ts.refresh_from_db()
 
+                 print(f"[DS-PROCESSING] GVL_SUM обновлён в БД на сумму заказа: {expected_sum}")
+
+                 # 2) Отправить данные на DScloud и дождаться подтверждения
+                 confirmed = False
+                 retries = 0
+                 while not confirmed and retries < max_retries:
+                     response_data = send_data_to_dscloud()
+                     if response_data and response_data.get('GVLSum') == str(expected_sum):
+                         print(f"[DS-PROCESSING] Подтверждение получения суммы {expected_sum} от DScloud получено.")
+                         confirmed = True
+                         _gvl_sent_for = current_processing_order_id
+                         _last_processing_order_id = current_processing_order_id
+                     else:
+                         print(f"[DS-PROCESSING] Ожидание подтверждения суммы {expected_sum} от DScloud... (Попытка {retries + 1}/{max_retries})")
+                         if response_data:
+                             print(f"[DS-PROCESSING] Получен ответ: {response_data}")
+                         retries += 1
+                         if retries == max_retries:
+                             print(f"[DS-PROCESSING] ОШИБКА: Не удалось получить подтверждение суммы {expected_sum} от DScloud после {max_retries} попыток.")
+
+        # --- КРИТИЧНО ВАЖНО: ПРОВЕРКА И ОБНУЛЕНИЕ GVL_SUM ПОСЛЕ ЗАВЕРШЕНИЯ ЛЮБОЙ МОЙКИ ---
+        # Эта проверка должна выполняться всегда, когда мойка свободна.
+        # Она обрабатывает случаи, когда мойка была запущена вне логики _gvl_sent_for.
+        
+        ts = TerminalStatus.objects.first()
+        if ts and ts.gvl_sum != 0:
+            # gvl_sum не равен 0, но активных заказов в PROCESSING нет.
+            # Это означает, что предыдущая мойка завершена, но gvl_sum не был обнулён.
+            print(f"[DS-CLEANUP] Нет активных заказов, но gvl_sum={ts.gvl_sum}. Обнуляем GVL_SUM в БД.")
+
+            # Обнуляем в БД
+            with transaction.atomic():
+                ts.gvl_sum = 0
+                ts.save()
+                ts.refresh_from_db()
+
+            print(f"[DS-CLEANUP] GVL_SUM обнулён в БД.")
+
+            # Отправляем обнуленные данные и дожидаемся подтверждения от DScloud
+            confirmed_zero = False
+            retries = 0
+            while not confirmed_zero and retries < max_retries:
+                response_data = send_data_to_dscloud()
+                if response_data and response_data.get('GVLSum') == '0':
+                    print(f"[DS-CLEANUP] Подтверждение обнуления суммы от DScloud получено.")
+                    confirmed_zero = True
+                    # Сбрасываем флаги терминальных заказов, если они были установлены
+                    _gvl_sent_for = None
+                    _last_processing_order_id = None
+                    # Сбрасываем флаг мобильной оплаты
+                    _mobile_order_confirmed = False 
+                else:
+                    print(f"[DS-CLEANUP] Ожидание подтверждения обнуления суммы от DScloud... (Попытка {retries + 1}/{max_retries})")
+                    if response_data:
+                        print(f"[DS-CLEANUP] Получен ответ: {response_data}")
+                    retries += 1
+                    if retries == max_retries:
+                         print(f"[DS-CLEANUP] ОШИБКА: Не удалось получить подтверждение обнуления суммы от DScloud после {max_retries} попыток.")
+                         # Не сбрасываем флаги, попробуем снова на следующем шаге.
+        # ----------------------------------------------------------------------------------
+
+        # --- ОТПРАВКА ПИНГА, ЕСЛИ ВСЕ УСЛОВИЯ СОБЛЮДЕНЫ ---
+        # Этот блок теперь выполняется только если gvl_sum уже 0 или был обнулён выше
+        # и нет активных заказов. Логика отправки "пустого" пинга сохранена.
+        # print("[DS-IDLE] Нет активного заказа. Отправка данных для поддержания соединения.")
+        # send_data_to_dscloud() - уже отправили в начале функции
+        pass
+            
     except Exception as e:
         print(f"[DS] Критическая ошибка в задаче dscloud_job: {e}")
-
-# ... (другие функции, такие как dscloud_prices_job, start_dscloud_scheduler и т.д.) ...
-
-
 
 def dscloud_prices_job():
     """
     Фоновая задача для APScheduler.
     Отправляет данные о ценах программ каждую минуту.
-    Эта задача выполняется ВСЕГДА по расписанию, независимо от состояния основного пинга.
     """
-    print("[DS-PRICES] Запуск задачи отправки цен (независимо от состояния мойки).")
+    print("[DS-PRICES] Запуск задачи отправки цен.")
     send_prices_to_dscloud()
     print("[DS-PRICES] Задача отправки цен завершена.")
 
@@ -412,3 +482,4 @@ def start_dscloud_scheduler():
     
     _scheduler_instance.start()
     print("[DS] APScheduler для DScloud успешно запущен (State ping: 5s, Prices ping: 1min).")
+

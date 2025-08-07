@@ -173,7 +173,60 @@ def try_run_next_car_wash():
         print(f"[LOG] Заказ {next_order.transaction_id} запускается с позиции 0.")
         start_car_wash(next_order)
 
+# ---------------------------
+# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
+# ---------------------------
 
+def process_loyalty_payment(order, ucn):
+    """
+    Обрабатывает оплату по карте лояльности.
+    Выполняет запрос на списание средств.
+    """
+    try:
+        # Получаем идентификатор терминала
+        terminal = TerminalStatus.objects.first()
+        if not terminal:
+            raise Exception("TerminalStatus не найден")
+        
+        dev_id = terminal.identifier
+        sum_amount = int(order.program_price)
+        
+        # URL и заголовки для запроса
+        url = "http://52.57.123.53:8888/cwash/api/service/card_oper"
+        headers = {
+            "dev_id": str(dev_id),
+            "ucn": str(ucn),
+            "token": "0", # Хардкодим как указано в ТЗ
+            "sum": str(sum_amount)
+        }
+        
+        print(f"[LOYALTY] Отправка запроса на списание: {url}")
+        print(f"[LOYALTY] Заголовки: {headers}")
+        
+        # Отправляем POST-запрос
+        response = requests.post(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+        
+        print(f"[LOYALTY] Ответ от сервиса лояльности: {data}")
+        
+        errcode = data.get("errcode")
+        if errcode == 200:
+            print(f"[LOYALTY] Списание успешно для заказа {order.transaction_id}")
+            return True, ""
+        else:
+            errmes = data.get("errmes", "Неизвестная ошибка")
+            print(f"[LOYALTY] Ошибка списания для заказа {order.transaction_id}: {errmes}")
+            return False, errmes
+            
+    except requests.exceptions.RequestException as e:
+        error_msg = f"Ошибка сети при запросе к сервису лояльности: {e}"
+        print(f"[LOYALTY] {error_msg}")
+        return False, error_msg
+    except Exception as e:
+        error_msg = f"Неожиданная ошибка при обработке оплаты лояльностью: {e}"
+        print(f"[LOYALTY] {error_msg}")
+        return False, error_msg
 
 # ---------------------------
 # API-КЛАССЫ
@@ -272,7 +325,8 @@ class WashOrderPaymentView(APIView):
     Принимает JSON:
         {
             "transaction_id": "uuid",
-            "payment_type": "cash"
+            "payment_type": "cash",
+            "ucn": "1234567890" (опционально, только для loyalty_card)
         }
     """
     def post(self, request):
@@ -282,6 +336,8 @@ class WashOrderPaymentView(APIView):
 
         transaction_id = serializer.validated_data['transaction_id']
         payment_type = serializer.validated_data['payment_type']
+        ucn = serializer.validated_data.get('ucn', '') # Получаем ucn, если передан
+        
         order = get_object_or_404(WashOrder, transaction_id=transaction_id)
 
         if order.status in [WashOrder.Status.PAYED, WashOrder.Status.PROCESSING, WashOrder.Status.COMPLETED]:
@@ -290,30 +346,44 @@ class WashOrderPaymentView(APIView):
         # Устанавливаем статус "ожидание оплаты"
         order.status = WashOrder.Status.WAITING_PAYMENT
         order.payment_type = payment_type
+        # Если ucn передан (для loyalty_card), сохраняем его
+        if ucn:
+            order.ucn = ucn
         order.save()
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
 
-        # Симуляция оплаты
+        # Обработка оплаты в зависимости от типа
         if payment_type == 'cash':
             cash_payment()
         elif payment_type == 'bank_card':
             bank_card_payment()
-        elif payment_type == 'mobile_app':
-            mobile_app_payment()
         elif payment_type == 'loyalty_card':
-            loyalty_card_payment()
+            print(f"[LOYALTY] Начало обработки оплаты по карте лояльности для заказа {order.transaction_id}")
+            # Обрабатываем оплату по карте лояльности
+            success, error_message = process_loyalty_payment(order, ucn)
+            
+            if not success:
+                order.status = WashOrder.Status.FAILED
+                order.save()
+                print(f"[LOYALTY] Оплата не удалась для заказа {order.transaction_id}. Статус изменен на FAILED.")
+                return Response({'error': f'Ошибка оплаты по карте лояльности: {error_message}'}, status=400)
+            else:
+                print(f"[LOYALTY] Оплата успешно завершена для заказа {order.transaction_id}")
+        else:
+            return Response({"error": "Неверный тип оплаты"}, status=400)
 
         # После успешной оплаты — статус "оплачен"
         order.status = WashOrder.Status.PAYED
-
-        # Попытка получить QR-код
+        # QR-код не нужен для loyalty_card, но логика остается для совместимости
+        # Попытка получить QR-код (если требуется для других типов оплаты)
         qr_code = send_receipt_request(order)
         if qr_code:
             order.qr_code = qr_code
             print(f"[QR] Чек успешно получен: {qr_code}")
         else:
             print(f"[QR] Не удалось получить чек.")
-        
+
+        # Обработка очереди
         if is_car_wash_busy():
             try:
                 queue_number, queue_position = assign_queue_number_and_position()
@@ -324,19 +394,15 @@ class WashOrderPaymentView(APIView):
                 return Response({'error': str(e)}, status=400)
         else:
             print(f"[LOG] Мойка свободна. Заказ {order.transaction_id} будет запускаться немедленно.")
-
-        # Сохраняем все обновления
         order.save()
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
 
-        # Запуск мойки, если можно
-        if order.queue_position is None and not is_car_wash_busy():
-            print(f"[LOG] Мойка свободна. Заказ {order.transaction_id} запускается сразу без очереди.")
-            start_car_wash(order)
-        else:
-            try_run_next_car_wash()
 
-        return Response({'message': 'Оплата прошла успешно'}, status=200)
+        message = 'Оплата прошла успешно. Ожидание подтверждения от терминала.'
+        if payment_type == 'loyalty_card':
+            message += ' Мойка начнется через 5 секунд.'
+
+        return Response({'message': message}, status=200)
 
 
 # ---------------------------

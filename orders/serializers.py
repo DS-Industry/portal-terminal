@@ -37,3 +37,4 @@ class WashOrderPaymentSerializer(serializers.Serializer):
         ('mobile_app', 'mobile_app'),
         ('loyalty_card', 'loyalty_card'),
     ])
+    ucn = serializers.CharField(required=False, allow_blank=True)
