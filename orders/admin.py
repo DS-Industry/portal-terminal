@@ -1,6 +1,6 @@
 from django.contrib import admin
-from django.utils import timezone
 from django.utils.dateformat import format as date_format
+from django.utils import timezone
 
 from .models import (
     Program,
@@ -59,11 +59,13 @@ class TerminalStatusAdmin(SingletonAdmin):
         'id', 'identifier', 'car_wash_identifier','name', 'bay_number',
         'gvl_cardnum', 'gvl_cardsum', 'gvl_sum',
         'gvl_err', 'gvl_time', 'gvl_source',
+        'mobile_app_qr_code',
     )
     fields = (
         'identifier', 'name', 'bay_number', 'car_wash_identifier',
         'gvl_cardnum', 'gvl_cardsum', 'gvl_sum',
         'gvl_err', 'gvl_time', 'gvl_source',
+        'mobile_app_qr_code',
     )
 
 

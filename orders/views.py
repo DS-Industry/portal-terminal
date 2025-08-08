@@ -1,236 +1,38 @@
-# orders/views.py
 import uuid
-import time
-import json
-import requests
-import threading
-import os
 
 from dotenv import load_dotenv
 
-from rest_framework import viewsets
-from rest_framework import status as drf_status
-from rest_framework.views import APIView
-from rest_framework.response import Response
-
-from django.db import transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+
+from rest_framework import viewsets
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from .models import (
     Program,
     WashOrder,
-    WashSettings,
-    TerminalStatus,
-    ReceiptServerConfig
     )
 from .serializers import (
     ProgramSerializer,
     WashOrderCreateSerializer,
-    WashOrderPaymentSerializer
+    WashOrderPaymentSerializer,
+)
+from .receipt_qr import send_receipt_request
+from .payments import (
+    bank_card_payment,
+    cash_payment,    
+    loyalty_card_payment,
+    mobile_app_payment,
+)
+from .queue_option import (
+    assign_queue_number_and_position,
+    is_car_wash_busy,
+    reset_queue_if_needed,
 )
 
+
 load_dotenv()
-# ---------------------------
-# ФУНКЦИЯ ОТПРАВКИ QR-ЗАПРОСА
-# ---------------------------
-
-def send_receipt_request(order: WashOrder) -> str | None:
-    """
-    Отправляет POST-запрос на сервер печати чека.
-    Возвращает строку QR-кода или None при ошибке.
-    """
-    try:
-        server_conf = ReceiptServerConfig.objects.first()
-        if not server_conf:
-            print("[QR] Не настроен IP-адрес кассы в ReceiptServerConfig.")
-            return None
-
-        bay_row = TerminalStatus.objects.first()
-        if not bay_row:
-            print("[QR] В таблице TerminalStatus нет записей.")
-            return None
-
-        payload = {
-            "name": "1",  # всегда "1" = робот
-            "bay": str(bay_row.bay_number),
-            "sum": str(order.program_price),
-            "type": "0" if order.payment_type == "cash" else "1"
-        }
-
-        headers = {
-            "Content-Type": "application/json",
-            "Data": json.dumps(payload)
-        }
-
-        url = f"http://{server_conf.ip_address}/create-check"
-        print(f"[QR] Отправка запроса на чек: {url} с данными: {payload}")
-
-        response = requests.post(url, headers=headers, timeout=5)
-        response.raise_for_status()
-        data = response.json()
-        return data.get("qr")
-    except Exception as e:
-        print(f"[QR] Ошибка при отправке чека: {e}")
-        return None
-
-
-# ---------------------------
-# ФУНКЦИИ ДЛЯ ОЧЕРЕДИ
-# ---------------------------
-
-def is_car_wash_busy() -> bool:
-    """
-    Проверяет, занята ли мойка (есть заказ со статусом PROCESSING).
-    """
-    return WashOrder.objects.filter(status=WashOrder.Status.PROCESSING).exists()
-
-
-def reset_queue_if_needed():
-    """
-    Сбрасывает очередь, если все заказы завершены.
-    """
-    active_statuses = [
-        WashOrder.Status.CREATED,
-        WashOrder.Status.WAITING_PAYMENT,
-        WashOrder.Status.PAYED,
-        WashOrder.Status.PROCESSING,
-    ]
-    if not WashOrder.objects.filter(status__in=active_statuses).exists():
-        WashOrder.objects.update(queue_number=None, queue_position=None)
-        print("[LOG] Очередь сброшена — мойка и очередь пусты.")
-
-
-def get_next_queue_number() -> str:
-    """
-    Возвращает следующий уникальный номер очереди в формате A-<номер>.
-    """
-    existing = WashOrder.objects.exclude(queue_number__isnull=True).values_list('queue_number', flat=True)
-    max_num = 0
-    for q in existing:
-        try:
-            num = int(q.split("-")[1])
-            max_num = max(max_num, num)
-        except (IndexError, ValueError):
-            continue
-    return f"A-{max_num + 1}"
-
-
-def assign_queue_number_and_position() -> tuple[str, int]:
-    """
-    Назначает queue_number и queue_position новому заказу.
-
-    Возвращает:
-        (queue_number, queue_position)
-    """
-    queue = WashOrder.objects.filter(
-        queue_number__isnull=False,
-        status__in=[
-            WashOrder.Status.CREATED,
-            WashOrder.Status.WAITING_PAYMENT,
-            WashOrder.Status.PAYED,
-        ]
-    ).order_by("id")
-
-    if queue.count() >= 5:
-        raise ValueError("Очередь переполнена")
-
-    return get_next_queue_number(), queue.count() + 1
-
-
-def update_queue_positions_after_start():
-    """
-    После запуска мойки сдвигает позиции заказов в очереди.
-    """
-    queue = WashOrder.objects.filter(queue_position__isnull=False).order_by("queue_position")
-    for order in queue:
-        if order.queue_position == 1:
-            order.queue_position = 0
-        elif order.queue_position is not None and order.queue_position > 1:
-            order.queue_position -= 1
-        order.save()
-    print("[LOG] Очередь обновлена после запуска мойки.")
-
-
-def try_run_next_car_wash():
-    """
-    Если мойка свободна и есть заказ с позицией 0 и статусом PAYED — запускает мойку.
-    Если есть очередь, перед запуском обновляет позиции.
-    """
-    if is_car_wash_busy():
-        return
-
-    # Сначала обновим позиции: 1 → 0, 2 → 1 и т.д.
-    update_queue_positions_after_start()
-
-    # И только потом ищем того, у кого позиция = 0
-    next_order = WashOrder.objects.filter(
-        status=WashOrder.Status.PAYED,
-        queue_position=0
-    ).order_by("id").first()
-
-    if next_order:
-        print(f"[LOG] Заказ {next_order.transaction_id} запускается с позиции 0.")
-        start_car_wash(next_order)
-
-# ---------------------------
-# ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-# ---------------------------
-
-def process_loyalty_payment(order, ucn):
-    """
-    Обрабатывает оплату по карте лояльности.
-    Выполняет запрос на списание средств.
-    """
-    try:
-        # Получаем идентификатор терминала
-        terminal = TerminalStatus.objects.first()
-        if not terminal:
-            raise Exception("TerminalStatus не найден")
-        
-        dev_id = terminal.identifier
-        sum_amount = int(order.program_price)
-        
-        # URL и заголовки для запроса
-        url = "http://52.57.123.53:8888/cwash/api/service/card_oper"
-        headers = {
-            "dev_id": str(dev_id),
-            "ucn": str(ucn),
-            "token": "0", # Хардкодим как указано в ТЗ
-            "sum": str(sum_amount)
-        }
-        
-        print(f"[LOYALTY] Отправка запроса на списание: {url}")
-        print(f"[LOYALTY] Заголовки: {headers}")
-        
-        # Отправляем POST-запрос
-        response = requests.post(url, headers=headers, timeout=10)
-        response.raise_for_status()
-        data = response.json()
-        
-        print(f"[LOYALTY] Ответ от сервиса лояльности: {data}")
-        
-        errcode = data.get("errcode")
-        if errcode == 200:
-            print(f"[LOYALTY] Списание успешно для заказа {order.transaction_id}")
-            return True, ""
-        else:
-            errmes = data.get("errmes", "Неизвестная ошибка")
-            print(f"[LOYALTY] Ошибка списания для заказа {order.transaction_id}: {errmes}")
-            return False, errmes
-            
-    except requests.exceptions.RequestException as e:
-        error_msg = f"Ошибка сети при запросе к сервису лояльности: {e}"
-        print(f"[LOYALTY] {error_msg}")
-        return False, error_msg
-    except Exception as e:
-        error_msg = f"Неожиданная ошибка при обработке оплаты лояльностью: {e}"
-        print(f"[LOYALTY] {error_msg}")
-        return False, error_msg
-
-# ---------------------------
-# API-КЛАССЫ
-# ---------------------------
 
 class ProgramViewSet(viewsets.ModelViewSet):
     """
@@ -336,17 +138,15 @@ class WashOrderPaymentView(APIView):
 
         transaction_id = serializer.validated_data['transaction_id']
         payment_type = serializer.validated_data['payment_type']
-        ucn = serializer.validated_data.get('ucn', '') # Получаем ucn, если передан
+        ucn = serializer.validated_data.get('ucn', '')
         
         order = get_object_or_404(WashOrder, transaction_id=transaction_id)
 
         if order.status in [WashOrder.Status.PAYED, WashOrder.Status.PROCESSING, WashOrder.Status.COMPLETED]:
             return Response({'error': 'Невозможно оплатить заказ с текущим статусом.'}, status=400)
 
-        # Устанавливаем статус "ожидание оплаты"
         order.status = WashOrder.Status.WAITING_PAYMENT
         order.payment_type = payment_type
-        # Если ucn передан (для loyalty_card), сохраняем его
         if ucn:
             order.ucn = ucn
         order.save()
@@ -357,10 +157,13 @@ class WashOrderPaymentView(APIView):
             cash_payment()
         elif payment_type == 'bank_card':
             bank_card_payment()
+        elif payment_type == 'mobile_app':
+            return mobile_app_payment(order)
+            
         elif payment_type == 'loyalty_card':
             print(f"[LOYALTY] Начало обработки оплаты по карте лояльности для заказа {order.transaction_id}")
             # Обрабатываем оплату по карте лояльности
-            success, error_message = process_loyalty_payment(order, ucn)
+            success, error_message = loyalty_card_payment(order, ucn)
             
             if not success:
                 order.status = WashOrder.Status.FAILED
@@ -374,8 +177,7 @@ class WashOrderPaymentView(APIView):
 
         # После успешной оплаты — статус "оплачен"
         order.status = WashOrder.Status.PAYED
-        # QR-код не нужен для loyalty_card, но логика остается для совместимости
-        # Попытка получить QR-код (если требуется для других типов оплаты)
+        # QR-код не нужен для loyalty_card, но логика остается для совместимости\
         qr_code = send_receipt_request(order)
         if qr_code:
             order.qr_code = qr_code
@@ -394,79 +196,15 @@ class WashOrderPaymentView(APIView):
                 return Response({'error': str(e)}, status=400)
         else:
             print(f"[LOG] Мойка свободна. Заказ {order.transaction_id} будет запускаться немедленно.")
+            
+        queue_number_to_return = order.queue_number
         order.save()
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
 
-
         message = 'Оплата прошла успешно. Ожидание подтверждения от терминала.'
-        if payment_type == 'loyalty_card':
-            message += ' Мойка начнется через 5 секунд.'
-
-        return Response({'message': message}, status=200)
-
-
-# ---------------------------
-# МОЙКА
-# ---------------------------
-
-def start_car_wash(order):
-    """
-    Запускает мойку: статус processing → completed через 120 сек.
-    После завершения мойки — запускает следующий заказ (если есть).
-    """
-    print(f"[LOG] Запуск мойки по программе: {order.program.name}")
-    order.status = WashOrder.Status.PROCESSING
-    order.save()
-
-    time.sleep(60)
-
-    order.status = WashOrder.Status.COMPLETED
-    order.queue_position = None
-    order.queue_number = None
-    order.save()
-    print(f"[LOG] Мойка завершена. Статус заказа {order.transaction_id} обновлён: completed")
-
-    # 🔁 Переход к следующему заказу
-    delay = WashSettings.objects.first().delay_between_washes if WashSettings.objects.exists() else 5
-    print(f"[LOG] Начало следующей мойки через {delay} сек...")
-    time.sleep(delay)
-    try_run_next_car_wash()
-
-# ---------------------------
-# ОПЛАТА (каждая отдельно)
-# ---------------------------
-
-def bank_card_payment():
-    """
-    Симуляция оплаты банковской картой.
-    """
-    print("[LOG] Выбран тип оплаты: bank_card")
-    time.sleep(5)
-    print("[LOG] Оплата банковской картой прошла успешно.")
-
-
-def cash_payment():
-    """
-    Симуляция оплаты наличными.
-    """
-    print("[LOG] Выбран тип оплаты: cash")
-    time.sleep(5)
-    print("[LOG] Оплата наличными прошла успешно.")
-
-
-def mobile_app_payment():
-    """
-    Симуляция оплаты через мобильное приложение.
-    """
-    print("[LOG] Выбран тип оплаты: mobile_app")
-    time.sleep(5)
-    print("[LOG] Оплата через мобильное приложение прошла успешно.")
-
-
-def loyalty_card_payment():
-    """
-    Симуляция оплаты по карте лояльности.
-    """
-    print("[LOG] Выбран тип оплаты: loyalty_card")
-    time.sleep(5)
-    print("[LOG] Оплата по карте лояльности прошла успешно.")
+        response_data = {
+            'message': message,
+            'queue_number': queue_number_to_return # Может быть None
+        }
+        
+        return Response(response_data, status=200)

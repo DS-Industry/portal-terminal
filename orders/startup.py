@@ -1,14 +1,15 @@
 # orders/startup.py
-from django.core.management.color import no_style
+from django.apps import apps
 from django.db import connection, OperationalError
 from django.db.utils import ProgrammingError
-from django.apps import apps
+
 
 def handle_processing_orders_on_startup(**kwargs):
     """
-    При старте сервера (после миграций) проверяет заказы в статусе 'processing'.
-    Если таковые найдены — меняет их статус на 'failed'.
+    При старте сервера (после миграций) проверяет заказы в критических статусах.
+    Если таковые найдены — меняет их статус на 'failed' и сбрасывает очередь.
     Это помогает восстановиться после отключения питания или аварийного завершения.
+    Критические статусы: PROCESSING, WAITING_PAYMENT, PAYED
     """
     try:
         if not apps.ready: 
@@ -27,15 +28,36 @@ def handle_processing_orders_on_startup(**kwargs):
             print(f"[INIT] Ошибка доступа к таблице orders_washorder: {e}")
             return
 
-        processing_orders = WashOrder.objects.filter(status=WashOrder.Status.PROCESSING)
-        count = processing_orders.count()
+        # Определяем критические статусы
+        critical_statuses = [
+            WashOrder.Status.PROCESSING,
+            WashOrder.Status.WAITING_PAYMENT,
+            WashOrder.Status.PAYED
+        ]
+        
+        # Находим заказы в критических статусах
+        critical_orders = WashOrder.objects.filter(status__in=critical_statuses)
+        count = critical_orders.count()
 
         if count > 0:
-            print(f"[INIT] Найдено {count} заказ(ов) в статусе 'processing'. Обновляем статус на 'failed'...")
-            updated_count = processing_orders.update(status=WashOrder.Status.FAILED)
+            print(f"[INIT] Найдено {count} заказ(ов) в критических статусах {critical_statuses}. Обновляем статус на 'failed'...")
+            updated_count = critical_orders.update(status=WashOrder.Status.FAILED)
             print(f"[INIT] Обновлено {updated_count} заказ(ов) на статус 'failed'.")
         else:
-            print("[INIT] Активных заказов в статусе 'processing' не найдено.")
+            print("[INIT] Заказов в критических статусах не найдено.")
+            
+        # Всегда сбрасываем очередь (очищаем queue_number и queue_position)
+        # Это необходимо для корректной работы после сбоев
+        print("[INIT] Сброс значений очереди (queue_number, queue_position) для всех заказов...")
+        reset_count = WashOrder.objects.exclude(
+            queue_number__isnull=True, 
+            queue_position__isnull=True
+        ).update(queue_number=None, queue_position=None)
+        
+        if reset_count > 0:
+            print(f"[INIT] Сброшено {reset_count} заказ(ов) из очереди.")
+        else:
+            print("[INIT] Нет заказов в очереди для сброса.")
 
     except Exception as e:
-        print(f"[INIT] Неожиданная ошибка при проверке заказов 'processing': {e}")
+        print(f"[INIT] Неожиданная ошибка при проверке заказов: {e}")

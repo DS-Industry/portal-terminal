@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Program, WashOrder
+
+from .models import Program
 
 
 class ProgramSerializer(serializers.ModelSerializer):
