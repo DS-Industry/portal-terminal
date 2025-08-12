@@ -1,7 +1,5 @@
 import uuid
 
-from dotenv import load_dotenv
-
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 
@@ -31,8 +29,6 @@ from .queue_option import (
     reset_queue_if_needed,
 )
 
-
-load_dotenv()
 
 class ProgramViewSet(viewsets.ModelViewSet):
     """
@@ -70,7 +66,7 @@ class CreateWashOrderView(APIView):
             "program_name": "...",
             "program_price": 100.0,
             "date": "25.07.2025 - 14:45:45"
-            "queue_number": А-3,
+            "queue_number": А-3, (Может и None)
             "queue_position": 1
         }
     """
@@ -93,19 +89,23 @@ class CreateWashOrderView(APIView):
         queue_position = None
 
         transaction_id = str(uuid.uuid4())
-        current_date = timezone.now().strftime('%d.%m.%Y - %H:%M:%S')
 
         order = WashOrder.objects.create(
             program=program,
             program_price=program.price,
             transaction_id=transaction_id,
-            date=current_date,
             status=WashOrder.Status.CREATED,
             ucn=ucn,
             queue_number=queue_number,
             queue_position=queue_position
         )
 
+        formatted_date = (
+            timezone.localtime(
+                order.date
+                ).strftime('%d.%m.%Y - %H:%M:%S') if order.date else None
+            )
+        
         print(f"[LOG] Новый заказ создан: ID={order.transaction_id}, Очередь={queue_number}, Позиция={queue_position}")
 
         return Response({
@@ -114,7 +114,7 @@ class CreateWashOrderView(APIView):
             "status": order.status,
             "program_name": program.name,
             "program_price": float(program.price),
-            "date": current_date,
+            "date": formatted_date,
             "queue_number": queue_number,
             "queue_position": queue_position
         }, status=201)
@@ -127,8 +127,8 @@ class WashOrderPaymentView(APIView):
     Принимает JSON:
         {
             "transaction_id": "uuid",
-            "payment_type": "cash",
-            "ucn": "1234567890" (опционально, только для loyalty_card)
+            "payment_type": "cash" | "bank_card" | "mobile_app" | "loyalty_card",
+            "ucn": "1234567890"  # опционально, только для loyalty_card
         }
     """
     def post(self, request):
@@ -136,15 +136,22 @@ class WashOrderPaymentView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
-        transaction_id = serializer.validated_data['transaction_id']
-        payment_type = serializer.validated_data['payment_type']
-        ucn = serializer.validated_data.get('ucn', '')
-        
+        transaction_id = serializer.validated_data["transaction_id"]
+        payment_type = serializer.validated_data["payment_type"]
+        ucn = serializer.validated_data.get("ucn", "")
+
         order = get_object_or_404(WashOrder, transaction_id=transaction_id)
 
-        if order.status in [WashOrder.Status.PAYED, WashOrder.Status.PROCESSING, WashOrder.Status.COMPLETED]:
-            return Response({'error': 'Невозможно оплатить заказ с текущим статусом.'}, status=400)
+        if order.status in [
+            WashOrder.Status.PAYED,
+            WashOrder.Status.PROCESSING,
+            WashOrder.Status.COMPLETED,
+        ]:
+            return Response(
+                {"error": "Невозможно оплатить заказ с текущим статусом."}, status=400
+            )
 
+        # Перед началом конкретной оплаты фиксируем ожидание оплаты
         order.status = WashOrder.Status.WAITING_PAYMENT
         order.payment_type = payment_type
         if ucn:
@@ -152,38 +159,45 @@ class WashOrderPaymentView(APIView):
         order.save()
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
 
-        # Обработка оплаты в зависимости от типа
-        if payment_type == 'cash':
+        # Обработка оплаты
+        if payment_type == "cash":
             cash_payment()
-        elif payment_type == 'bank_card':
+
+        elif payment_type == "bank_card":
             bank_card_payment()
-        elif payment_type == 'mobile_app':
+
+        elif payment_type == "mobile_app":
+            # Для старого мобильного приложения возвращаем QR немедленно
             return mobile_app_payment(order)
-            
-        elif payment_type == 'loyalty_card':
+
+        elif payment_type == "loyalty_card":
             print(f"[LOYALTY] Начало обработки оплаты по карте лояльности для заказа {order.transaction_id}")
-            # Обрабатываем оплату по карте лояльности
             success, error_message = loyalty_card_payment(order, ucn)
-            
             if not success:
                 order.status = WashOrder.Status.FAILED
-                order.save()
+                order.save(update_fields=["status"])
                 print(f"[LOYALTY] Оплата не удалась для заказа {order.transaction_id}. Статус изменен на FAILED.")
-                return Response({'error': f'Ошибка оплаты по карте лояльности: {error_message}'}, status=400)
-            else:
-                print(f"[LOYALTY] Оплата успешно завершена для заказа {order.transaction_id}")
+                return Response(
+                    {"error": f"Ошибка оплаты по карте лояльности: {error_message}"},
+                    status=400,
+                )
+            print(f"[LOYALTY] Оплата успешно завершена для заказа {order.transaction_id}")
+
         else:
             return Response({"error": "Неверный тип оплаты"}, status=400)
 
         # После успешной оплаты — статус "оплачен"
         order.status = WashOrder.Status.PAYED
-        # QR-код не нужен для loyalty_card, но логика остается для совместимости\
-        qr_code = send_receipt_request(order)
-        if qr_code:
-            order.qr_code = qr_code
-            print(f"[QR] Чек успешно получен: {qr_code}")
-        else:
-            print(f"[QR] Не удалось получить чек.")
+
+        # Чек печатаем ТОЛЬКО для наличных и банковской карты
+        if payment_type in ("cash", "bank_card"):
+            qr_code = send_receipt_request(order)
+            if qr_code:
+                order.qr_code = qr_code
+                print(f"[QR] Чек успешно получен: {qr_code}")
+            else:
+                print("[QR] Не удалось получить чек.")
+        # для loyalty_card — НЕ печатаем чек
 
         # Обработка очереди
         if is_car_wash_busy():
@@ -191,20 +205,26 @@ class WashOrderPaymentView(APIView):
                 queue_number, queue_position = assign_queue_number_and_position()
                 order.queue_number = queue_number
                 order.queue_position = queue_position
-                print(f"[LOG] Заказ {order.transaction_id} поставлен в очередь: номер={queue_number}, позиция={queue_position}")
+                print(
+                    f"[LOG] Заказ {order.transaction_id} поставлен в очередь: "
+                    f"номер={queue_number}, позиция={queue_position}"
+                )
             except ValueError as e:
-                return Response({'error': str(e)}, status=400)
+                # сохранять PAYED не будем, раз очередь не удалось назначить
+                return Response({"error": str(e)}, status=400)
         else:
-            print(f"[LOG] Мойка свободна. Заказ {order.transaction_id} будет запускаться немедленно.")
-            
+            print(
+                f"[LOG] Мойка свободна. Заказ {order.transaction_id} будет запускаться немедленно."
+            )
+
         queue_number_to_return = order.queue_number
         order.save()
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
 
-        message = 'Оплата прошла успешно. Ожидание подтверждения от терминала.'
-        response_data = {
-            'message': message,
-            'queue_number': queue_number_to_return # Может быть None
-        }
-        
-        return Response(response_data, status=200)
+        return Response(
+            {
+                "message": "Оплата прошла успешно. Ожидание подтверждения от терминала.",
+                "queue_number": queue_number_to_return,  # Может быть None
+            },
+            status=200,
+        )

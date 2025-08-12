@@ -1,4 +1,4 @@
-import environ
+import os
 import requests
 import time
 
@@ -14,12 +14,11 @@ from .models import (
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env_file = BASE_DIR / ".env"
-env = environ.Env()
-environ.Env.read_env(env_file)
+
 
 try:
-    CARWASH_IP = env("CARWASH_IP")
-    CARWASH_PORT = env("CARWASH_PORT")
+    CARWASH_IP = os.getenv("CARWASH_IP")
+    CARWASH_PORT = os.getenv("CARWASH_PORT")
 except Exception as e:
     print(f"Ошибка при загрузке переменных окружения CARWASH: {e}")
 

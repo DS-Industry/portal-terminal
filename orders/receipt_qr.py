@@ -1,6 +1,8 @@
 import json
 import requests
 
+from typing import Optional
+
 from .models import (
     ReceiptServerConfig,
     TerminalStatus,
@@ -8,7 +10,7 @@ from .models import (
     )
 
 
-def send_receipt_request(order: WashOrder) -> str | None:
+def send_receipt_request(order: WashOrder) -> Optional[str]:
     """
     Отправляет POST-запрос на сервер печати чека.
     Возвращает строку QR-кода или None при ошибке.

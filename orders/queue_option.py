@@ -1,3 +1,5 @@
+from typing import Tuple
+
 from .models import WashOrder
 
 
@@ -38,7 +40,7 @@ def get_next_queue_number() -> str:
     return f"A-{max_num + 1}"
 
 
-def assign_queue_number_and_position() -> tuple[str, int]:
+def assign_queue_number_and_position() -> Tuple[str, int]:
     """
     Назначает queue_number и queue_position новому заказу.
 

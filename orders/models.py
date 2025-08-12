@@ -126,6 +126,7 @@ class WashOrder(models.Model):
         )
     
     queue_number = models.CharField(
+        max_length=20,
         null=True,
         blank=True,
         help_text="Статичный номер в очереди (например, A-1)"

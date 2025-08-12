@@ -43,7 +43,7 @@ class WashOrderAdmin(admin.ModelAdmin):
     list_display = (
         'id', 'program', 'program_price', 'formatted_date', 'status',
         'payment_type', 'queue_number', 'queue_position', 
-        'transaction_id', 'ucn',
+        'transaction_id', 'ucn', 'qr_code',
     )
     ordering = ('-id',)
     list_filter = ('status', 'program', 'payment_type', 'is_mobile_payment')
