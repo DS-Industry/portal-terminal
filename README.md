@@ -44,10 +44,25 @@ docker compose up -d
 docker compose logs -f web (опционально)
 docker compose logs -f db (опционально)
 ```
-## Креды от админки 
+## Админка
 
-user: portal
-password: portal
-email: portal@portal.com
+Креды от админки:
+
+
+- user: portal
+
+- password: portal
+
+- email: portal@portal.com
+
 
 Креды можно изменить в Dockerfile
+
+
+Админка находится по адресу:
+
+- http://localhost:8000/admin
+
+или
+
+- http://127.0.0.1:8000/admin
