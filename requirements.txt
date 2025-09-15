@@ -6,6 +6,7 @@ python-dotenv==1.0.1
 APScheduler==3.10.4
 requests==2.31.0
 whitenoise==6.6.0
+pymodbus==3.5.2
 
 # тесты
 pytest==8.1.1
