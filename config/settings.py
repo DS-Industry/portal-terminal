@@ -99,3 +99,8 @@ STATIC_URL = "static/"
 STATIC_ROOT = BASE_DIR / "staticfiles" 
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Modbus TCP настройки для OWEN PLC
+MODBUS_HOST = os.getenv('MODBUS_HOST', '192.168.53.120')
+MODBUS_PORT = int(os.getenv('MODBUS_PORT', '502'))
+MODBUS_TIMEOUT = int(os.getenv('MODBUS_TIMEOUT', '10'))

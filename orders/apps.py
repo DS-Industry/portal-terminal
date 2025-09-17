@@ -48,6 +48,11 @@ class OrdersConfig(AppConfig):
             start_dscloud_scheduler()
             print("[DS-DELAYED] Запуск APScheduler завершен.")
             
+            print("[PLC-DELAYED] Попытка запуска PLC планировщика...")
+            from .plc_sync import start_plc_scheduler
+            start_plc_scheduler()
+            print("[PLC-DELAYED] Запуск PLC планировщика завершен.")
+            
             print("[INIT-APP-DELAYED] Все отложенные задачи инициализации завершены.")
             
         except Exception as e:
