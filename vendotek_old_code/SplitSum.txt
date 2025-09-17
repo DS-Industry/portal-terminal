@@ -1,0 +1,42 @@
+//Делаем из суммы вошедшей в ФБ отдельно каждый символ
+
+IF SUM_IN < 10 THEN
+	sum1:=0;
+	sum2:=0;
+	sum3:=0;
+	sum4:=WORD_TO_BYTE(SUM_IN);
+END_IF
+
+IF SUM_IN >= 10 AND SUM_IN < 100    THEN
+	sum1:=0;
+	sum2:=0;
+	sum3:=WORD_TO_BYTE(SUM_IN/10);
+	sum4:=WORD_TO_BYTE(SUM_IN MOD (10));
+END_IF
+
+IF SUM_IN >= 100 AND SUM_IN < 1000    THEN
+	sum1:=0;
+	sum2:=WORD_TO_BYTE(SUM_IN/100);
+	sum3:=WORD_TO_BYTE(SUM_IN / 10)MOD (10);
+	sum4:=WORD_TO_BYTE(SUM_IN MOD (10));
+END_IF
+
+IF SUM_IN >= 1000 AND SUM_IN < 10000    THEN
+	sum1:=WORD_TO_BYTE(SUM_IN/1000);
+	sum2:=WORD_TO_BYTE(SUM_IN/100)MOD (10);
+	sum3:=WORD_TO_BYTE(SUM_IN / 10)MOD (10);
+	sum4:=WORD_TO_BYTE(SUM_IN MOD (10));
+END_IF
+
+//Преобразуем из байт сначала в HEX,а потом в CHAR, чтобы потом подставлять в запрос
+//Суммы из byte в string
+STRsum1:=BYTE_TO_HEX(sum1);
+STRsum2:=BYTE_TO_HEX(sum2);
+STRsum3:=BYTE_TO_HEX(sum3);
+STRsum4:=BYTE_TO_HEX(sum4);	
+	
+//Суммы из string, в char	
+CHRsum1:=CHR(STRsum1);
+CHRsum2:=CHR(STRsum2);
+CHRsum3:=CHR(STRsum3);
+CHRsum4:=CHR(STRsum4);

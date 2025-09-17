@@ -15,29 +15,29 @@ class Program(models.Model):
         max_length=100,
         help_text="Название программы",
         )
-    
+
     price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
         help_text="Цена программы",
         )
-    
+
     description = models.TextField(
-        blank=True, 
+        blank=True,
         null=True,
         help_text="Описание программы",
         )
-    
+
     duration = models.PositiveIntegerField(
         default=0,
         help_text="Продолжительность мойки (мин)",
         )
-    
+
     id_service = models.PositiveIntegerField(
         default=0,
         help_text="Идентификатор программы DScloud",
         )
-    
+
     def __str__(self):
         return f"{self.name} — {self.duration} мин"
 
@@ -80,37 +80,37 @@ class WashOrder(models.Model):
         on_delete=models.CASCADE,
         help_text="Название программы мойки"
         )
-    
+
     program_price = models.DecimalField(
         max_digits=8,
         decimal_places=2,
         help_text="Цена программы мойки"
         )
-    
+
     transaction_id = models.CharField(
         max_length=100,
         unique=True,
         help_text="ID транзакции",
         )
-    
+
     date = models.DateTimeField(
         auto_now_add=True,
         help_text="Дата и время создания",
         )
-    
+
     status = models.CharField(
         max_length=50,
         choices=Status.choices, default=Status.CREATED,
         help_text="Статус заказа"
         )
-    
+
     ucn = models.CharField(
         max_length=50,
         null=True,
         blank=True,
         help_text="Номер карты лояльности",
         )
-    
+
     payment_type = models.CharField(
         max_length=20,
         choices=PaymentType.choices,
@@ -118,41 +118,41 @@ class WashOrder(models.Model):
         blank=True,
         help_text="Тип оплаты"
         )
-    
+
     queue_position = models.PositiveIntegerField(
         null=True,
         blank=True,
         help_text="Позиция в очереди (Первый, второй, и т.д.)",
         )
-    
+
     queue_number = models.CharField(
         max_length=20,
         null=True,
         blank=True,
         help_text="Статичный номер в очереди (например, A-1)"
         )
-    
+
     qr_code = models.TextField(
         null=True,
         blank=True,
         )
-    
+
     gvl_source = models.IntegerField(
         null=True,
         blank=True,
         )
-    
+
     is_mobile_payment = models.BooleanField(
         default=False,
         help_text="Оплата через мобильное приложение да/нет",
         )
-    
+
     def __str__(self):
         payment_type_str = " (Моб.)" if self.is_mobile_payment else ""
         if self.status == self.Status.MOBILE_QR_REQUEST:
             payment_type_str = " (Старое Моб. приложение)"
         return f"Заказ {self.transaction_id}{payment_type_str} - {self.program.name}"
-    
+
     class Meta:
         verbose_name = "Таблица заказов"
         verbose_name_plural = "Таблица заказов"
@@ -167,34 +167,34 @@ class TerminalStatus(models.Model):
         default=0,
         help_text="ID робота в системе DScloud",
         )
-        
+
     car_wash_identifier = models.PositiveIntegerField(
         default=0,
         help_text="ID мойки в системе DScloud",
         )
-    
+
     name = models.CharField(
         max_length=100,
         help_text="Название робота",
         )
-    
+
     mobile_app_qr_code = models.TextField(
-        blank=True, 
+        blank=True,
         help_text="Статический QR-код для перехода в старое мобильное приложение",
     )
-    
+
     bay_number = models.PositiveIntegerField(verbose_name="Номер поста",)
-    
+
     gvl_cardnum = models.IntegerField(default=0,)
-    
+
     gvl_cardsum = models.IntegerField(default=0,)
-    
+
     gvl_sum = models.IntegerField(default=0,)
-    
+
     gvl_err = models.IntegerField(default=0,)
-    
+
     gvl_time = models.IntegerField(default=0,)
-    
+
     gvl_source = models.IntegerField(default=0,)
 
     def clean(self):
@@ -219,7 +219,7 @@ class WashSettings(models.Model):
     Глобальные настройки мойки.
     """
     delay_between_washes = models.PositiveIntegerField(
-        default=5, 
+        default=5,
         help_text="Задержка перед запуском следующей мойки (в секундах)",
         )
 
@@ -263,3 +263,33 @@ class ReceiptServerConfig(models.Model):
     class Meta:
         verbose_name = "Настройки API печати чеков"
         verbose_name_plural = "Настройки API печати чеков"
+
+
+class VendotekServerConfig(models.Model):
+    """
+    Настройки сервера Vendotek
+    """
+
+    ip_address = models.CharField(
+        max_length=100,
+        help_text="IP-адрес терминала, например 192.168.53.186"
+    )
+    port = models.IntegerField(
+        default=62801,
+        help_text="Порт терминала, например 62801"
+    )
+
+    def clean(self):
+        if VendotekServerConfig.objects.exists() and not self.pk:
+            raise ValidationError("Можно создать только одну запись VendotekServerConfig.")
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"Vendotek: {self.ip_address}:{self.port}"
+
+    class Meta:
+        verbose_name = "Настройки API Vendotek"
+        verbose_name_plural = "Настройки API Vendotek"

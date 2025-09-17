@@ -1,0 +1,437 @@
+#!/usr/bin/env python3
+"""
+Автономный тестовый скрипт для проверки интеграции с терминалом Vendotek.
+Не требует Django - работает независимо.
+"""
+
+import socket
+import struct
+from typing import Optional
+from dataclasses import dataclass
+
+
+@dataclass
+class VendotekResponse:
+    """Ответ от терминала Vendotek"""
+    success: bool
+    message_type: str = ""
+    operation_number: str = ""
+    approved_amount: str = ""
+    timeout: str = ""
+    event_number: str = ""
+    local_time: str = ""
+    error_message: str = ""
+
+
+class VendotekClient:
+    """Клиент для работы с терминалом Vendotek"""
+    
+    def __init__(self, ip_address: str = "192.168.53.186", port: int = 62801, timeout: int = 60):
+        self.ip_address = ip_address
+        self.port = port
+        self.timeout = timeout
+        self.socket: Optional[socket.socket] = None
+        self.operation_number = 1
+        
+    def connect(self) -> bool:
+        """Установка соединения с терминалом"""
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.settimeout(self.timeout)
+            self.socket.connect((self.ip_address, self.port))
+            print(f"[VENDOTEK] Соединение установлено с {self.ip_address}:{self.port}")
+            return True
+        except Exception as e:
+            print(f"[VENDOTEK] Ошибка подключения: {e}")
+            return False
+    
+    def disconnect(self):
+        """Закрытие соединения"""
+        if self.socket:
+            try:
+                self.socket.close()
+                print("[VENDOTEK] Соединение закрыто")
+            except Exception as e:
+                print(f"[VENDOTEK] Ошибка при закрытии соединения: {e}")
+            finally:
+                self.socket = None
+    
+    def _split_amount(self, amount: int) -> tuple:
+        """Разбивает сумму на отдельные цифры для протокола"""
+        if amount < 10:
+            return (0, 0, 0, amount)
+        elif amount < 100:
+            return (0, 0, amount // 10, amount % 10)
+        elif amount < 1000:
+            return (0, amount // 100, (amount // 10) % 10, amount % 10)
+        elif amount < 10000:
+            return (amount // 1000, (amount // 100) % 10, (amount // 10) % 10, amount % 10)
+        else:
+            raise ValueError(f"Сумма {amount} слишком большая (максимум 9999)")
+    
+    def _build_message(self, tlvs: bytearray) -> bytes:
+        """Собирает кадр: [len(2)][96 FB][TLVs...]"""
+        body = bytearray()
+        body.extend((0x96, 0xFB))
+        body.extend(tlvs)
+        length = len(body)
+        length_bytes = length.to_bytes(2, 'big')
+        return bytes(length_bytes + body)
+
+    def _create_idl_message(self) -> bytes:
+        """Создает минимальное сообщение IDL (как в старом коде ПЛК)"""
+        tlvs = bytearray()
+        # 0x01 'IDL'
+        tlvs.extend((0x01, 0x03))
+        tlvs.extend(b'IDL')
+        return self._build_message(tlvs)
+
+    def _create_vrp_message(self, amount: int, operation_number: str) -> bytes:
+        """Создает VRP сообщение (как в старом коде ПЛК).
+        Содержит только MessageName, Amount, OperationNumber.
+        """
+        tlvs = bytearray()
+
+        # 0x01 MessageName = "VRP"
+        tlvs.extend((0x01, 0x03))
+        tlvs.extend(b"VRP")
+
+        # 0x04 AmountMinorCurrency (в копейках, ASCII)
+        amount_minor = str(amount * 100).encode("ascii")
+        tlvs.extend((0x04, len(amount_minor)))
+        tlvs.extend(amount_minor)
+
+        # 0x03 OperationNumber (ASCII)
+        op_num_bytes = operation_number.encode("ascii")
+        tlvs.extend((0x03, len(op_num_bytes)))
+        tlvs.extend(op_num_bytes)
+
+        return self._build_message(tlvs)
+
+    def _create_fin_message(self, amount: int, operation_number: str) -> bytes:
+        """FIN как в старом коде ПЛК"""
+        tlvs = bytearray()
+        # MessageName
+        tlvs.extend((0x01, 0x03))
+        tlvs.extend(b"FIN")
+        # AmountMinorCurrency (в копейках)
+        amount_minor = str(amount * 100).encode("ascii")
+        tlvs.extend((0x04, len(amount_minor)))
+        tlvs.extend(amount_minor)
+        # OperationNumber
+        op_num_bytes = operation_number.encode("ascii")
+        tlvs.extend((0x03, len(op_num_bytes)))
+        tlvs.extend(op_num_bytes)
+        return self._build_message(tlvs)
+
+    def _create_abr_message(self) -> bytes:
+        """ABR как в старом коде ПЛК"""
+        tlvs = bytearray()
+        tlvs.extend((0x01, 0x03))
+        tlvs.extend(b"ABR")
+        return self._build_message(tlvs)
+
+    def _send_message(self, message: bytes) -> bool:
+        """Отправляет сообщение терминалу"""
+        try:
+            if not self.socket:
+                raise Exception("Соединение не установлено")
+            
+            print(f"[VENDOTEK] Отправка: {message.hex().upper()}")
+            self.socket.sendall(message)
+            return True
+        except Exception as e:
+            print(f"[VENDOTEK] Ошибка отправки: {e}")
+            return False
+    
+    def _receive_response(self) -> Optional[bytes]:
+        """Получает ответ от терминала"""
+        try:
+            if not self.socket:
+                raise Exception("Соединение не установлено")
+            
+            # Читаем первые 2 байта для определения длины
+            length_data = self.socket.recv(2)
+            if len(length_data) != 2:
+                raise Exception("Не удалось получить длину сообщения")
+            
+            # Длина сообщения (без первых 2 байт)
+            message_length = struct.unpack('>H', length_data)[0]
+            print(f"[VENDOTEK] Ожидаемая длина ответа: {message_length} байт")
+            
+            # Читаем остальную часть сообщения
+            response_data = self.socket.recv(message_length)
+            if len(response_data) != message_length:
+                raise Exception(f"Получено {len(response_data)} байт, ожидалось {message_length}")
+            
+            full_response = length_data + response_data
+            print(f"[VENDOTEK] Получен ответ: {full_response.hex().upper()}")
+            return full_response
+            
+        except Exception as e:
+            print(f"[VENDOTEK] Ошибка получения ответа: {e}")
+            return None
+    
+    def _parse_response(self, response: bytes) -> VendotekResponse:
+        """Парсит ответ от терминала"""
+        try:
+            if len(response) < 4:
+                return VendotekResponse(success=False, error_message="Слишком короткий ответ")
+            
+            # Проверяем заголовок ответа (0x97 0xFB)
+            if response[2] != 0x97 or response[3] != 0xFB:
+                return VendotekResponse(success=False, error_message="Неверный заголовок ответа")
+            
+            result = VendotekResponse(success=True)
+            
+            # Парсим параметры
+            i = 4  # Начинаем с 4-го байта (после заголовка)
+            while i < len(response) - 1:
+                param_id = response[i]
+                param_len = response[i + 1]
+                
+                if i + 2 + param_len > len(response):
+                    break
+                
+                param_data = response[i + 2:i + 2 + param_len]
+                
+                if param_id == 1:  # Тип сообщения
+                    result.message_type = param_data.decode('ascii', errors='ignore')
+                elif param_id == 3:  # Номер операции
+                    result.operation_number = param_data.decode('ascii', errors='ignore')
+                elif param_id == 4:  # Одобренная сумма
+                    result.approved_amount = param_data.decode('ascii', errors='ignore')
+                elif param_id == 6:  # Timeout
+                    result.timeout = param_data.decode('ascii', errors='ignore')
+                elif param_id == 8:  # Номер события
+                    result.event_number = param_data.decode('ascii', errors='ignore')
+                elif param_id == 17:  # Локальное время
+                    result.local_time = param_data.decode('ascii', errors='ignore')
+                
+                i += 2 + param_len
+            
+            print(f"Результат парсинга: {result}")
+            return result
+            
+        except Exception as e:
+            return VendotekResponse(success=False, error_message=f"Ошибка парсинга: {e}")
+
+    def send_idl(self) -> VendotekResponse:
+        print("[VENDOTEK] Отправка IDL (инициализация)")
+        message = self._create_idl_message()
+        if not self._send_message(message):
+            return VendotekResponse(success=False, error_message="Ошибка отправки IDL")
+        response = self._receive_response()
+        if not response:
+            return VendotekResponse(success=False, error_message="Нет ответа на IDL")
+        return self._parse_response(response)
+
+    def send_vrp(self, amount: int) -> VendotekResponse:
+        print(f"[VENDOTEK] Отправка VRP (запрос оплаты {amount} руб)")
+        message = self._create_vrp_message(amount, str(self.operation_number))
+        if not self._send_message(message):
+            return VendotekResponse(success=False, error_message="Ошибка отправки VRP")
+        response = self._receive_response()
+        if not response:
+            return VendotekResponse(success=False, error_message="Нет ответа на VRP")
+        return self._parse_response(response)
+
+    def send_fin(self, amount: int) -> VendotekResponse:
+        print(f"[VENDOTEK] Отправка FIN (завершение {amount} руб)")
+        message = self._create_fin_message(amount, str(self.operation_number))
+        if not self._send_message(message):
+            return VendotekResponse(success=False, error_message="Ошибка отправки FIN")
+        response = self._receive_response()
+        if not response:
+            return VendotekResponse(success=False, error_message="Нет ответа на FIN")
+        return self._parse_response(response)
+    
+    def send_abr(self) -> VendotekResponse:
+        """Отправляет команду отмены"""
+        print("[VENDOTEK] Отправка ABR (отмена)")
+        message = self._create_abr_message()
+        if not self._send_message(message):
+            return VendotekResponse(success=False, error_message="Ошибка отправки ABR")
+        
+        response = self._receive_response()
+        if not response:
+            return VendotekResponse(success=False, error_message="Нет ответа на ABR")
+        
+        return self._parse_response(response)
+    
+    def process_payment(self, amount: int) -> VendotekResponse:
+        """Выполняет полный цикл оплаты"""
+        try:
+            # 1. Инициализация
+            idl_response = self.send_idl()
+            if not idl_response.success:
+                return idl_response
+            
+            print(f"[VENDOTEK] IDL успешно: {idl_response.message_type}")
+            
+            # 2. Запрос оплаты
+            vrp_response = self.send_vrp(amount)
+            if not vrp_response.success:
+                return vrp_response
+            
+            print(f"[VENDOTEK] VRP успешно: сумма={vrp_response.approved_amount}, операция={vrp_response.operation_number}")
+            
+            # 3. Завершение
+            fin_response = self.send_fin(amount)
+            if not fin_response.success:
+                return fin_response
+            
+            print(f"[VENDOTEK] FIN успешно: {fin_response.message_type}")
+
+            idl_response_end = self.send_idl()
+            if not idl_response_end.success:
+                return idl_response_end
+
+            print(f"[VENDOTEK] IDL успешно: {idl_response_end.message_type}")
+            
+            return VendotekResponse(
+                success=True,
+                message_type="PAYMENT_COMPLETED",
+                operation_number=vrp_response.operation_number,
+                approved_amount=vrp_response.approved_amount
+            )
+            
+        except Exception as e:
+            return VendotekResponse(success=False, error_message=f"Ошибка процесса оплаты: {e}")
+
+
+def print_separator(title: str):
+    """Печатает разделитель с заголовком"""
+    print("\n" + "="*60)
+    print(f" {title}")
+    print("="*60)
+
+
+def print_response(response: VendotekResponse, step_name: str):
+    """Печатает результат операции"""
+    print(f"\n[{step_name}] Результат:")
+    if response.success:
+        print(f"  ✅ Успешно")
+        if response.message_type:
+            print(f"  📝 Тип сообщения: {response.message_type}")
+        if response.operation_number:
+            print(f"  🔢 Номер операции: {response.operation_number}")
+        if response.approved_amount:
+            print(f"  💰 Одобренная сумма: {response.approved_amount}")
+        if response.timeout:
+            print(f"  ⏱️  Таймаут: {response.timeout}")
+        if response.event_number:
+            print(f"  🎫 Номер события: {response.event_number}")
+        if response.local_time:
+            print(f"  🕐 Локальное время: {response.local_time}")
+    else:
+        print(f"  ❌ Ошибка: {response.error_message}")
+
+
+def test_vendotek_integration():
+    """Основная функция тестирования"""
+    print_separator("ТЕСТИРОВАНИЕ ИНТЕГРАЦИИ С VENDOTEK")
+    
+    # Настройки подключения
+    ip_address = "192.168.53.186"
+    port = 62801
+    timeout = 60
+    test_amount = 10  # 10 рублей
+    
+    print(f"Настройки подключения:")
+    print(f"  IP: {ip_address}")
+    print(f"  Порт: {port}")
+    print(f"  Таймаут: {timeout} сек")
+    print(f"  Тестовая сумма: {test_amount} руб")
+    
+    # Создаем клиент
+    client = VendotekClient(ip_address, port, timeout)
+    
+    try:
+        # Шаг 1: Подключение
+        print_separator("ШАГ 1: ПОДКЛЮЧЕНИЕ")
+        if not client.connect():
+            print("❌ Не удалось подключиться к терминалу")
+            return False
+        print("✅ Подключение установлено")
+
+
+        # Шаг 2: Инициализация (IDL с LocalTime + SystemInformation=STATUS + POS Mgmt 'A')
+        print_separator("ШАГ 2: ИНИЦИАЛИЗАЦИЯ (IDL STATUS)")
+        idl_response = client.send_idl()
+        print_response(idl_response, "IDL")
+        
+        if not idl_response.success:
+            print("❌ Инициализация не удалась")
+            return False
+        # Номер операции: если пришел — инкрементируем, иначе 1
+        try:
+            print(f"Номер операции: {idl_response.operation_number}")
+            client.operation_number = int(idl_response.operation_number) + 1 if idl_response.operation_number else 1
+        except Exception:
+            client.operation_number = 1
+
+        # Шаг 3: Запрос оплаты (VRP с timeout)
+        print_separator("ШАГ 3: ЗАПРОС ОПЛАТЫ (VRP)")
+        print(f"💳 Запрос оплаты на сумму {test_amount} руб")
+        print("   Приложите карту к терминалу...")
+        
+        vrp_response = client.send_vrp(test_amount)
+        print_response(vrp_response, "VRP")
+        
+        if not vrp_response.success:
+            print("❌ Запрос оплаты не удался")
+            return False
+
+            # Шаг 4: Завершение (FIN)
+        print_separator("ШАГ 4: ЗАВЕРШЕНИЕ (FIN)")
+        fin_response = client.send_fin(test_amount)
+        print_response(fin_response, "FIN")
+
+        print_separator("ШАГ 5: ИНИЦИАЛИЗАЦИЯ ЗАВЕРШЕНИЕ (IDL STATUS)")
+        idl_response_end = client.send_idl()
+        print_response(idl_response_end, "IDL")
+
+        if not fin_response.success:
+            print("❌ Завершение не удалось")
+            return False
+
+        # Итог
+        print_separator("ИТОГ")
+        print("✅ VRP принят.")
+
+        return True
+        
+    except KeyboardInterrupt:
+        print("\n⚠️  Тест прерван пользователем")
+        return False
+    except Exception as e:
+        print(f"\n❌ Неожиданная ошибка: {e}")
+        return False
+    finally:
+        # Закрываем соединение
+        print_separator("ЗАКРЫТИЕ СОЕДИНЕНИЯ")
+        client.disconnect()
+
+
+def main():
+    """Главная функция"""
+    print("🚀 Запуск тестирования интеграции с Vendotek")
+    print("   Убедитесь, что терминал Vendotek подключен и готов к работе")
+    
+    try:
+        success = test_vendotek_integration()
+        
+        if success:
+            print("\n🎉 Тестирование завершено успешно!")
+        else:
+            print("\n💥 Тестирование завершено с ошибками")
+            
+    except KeyboardInterrupt:
+        print("\n\n👋 Тестирование прервано пользователем")
+    except Exception as e:
+        print(f"\n❌ Критическая ошибка: {e}")
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,167 @@
+FUNCTION_BLOCK VTK
+VAR_IN_OUT
+	SUM_IN:WORD;	//Входящая сумма для списания
+	Cancel:BOOL;	//Выход из режима Оплата картой
+	ShowScreenPay	:BOOL;	//Показываем экран Приложите карту
+	HideScreenPay	:BOOL;	//Скрываем экран Приложите карту
+END_VAR
+
+VAR_OUTPUT
+	SUM_OUT:WORD; //Выходная списанная сумма	
+END_VAR
+
+VAR	
+	start	:BOOL;	//Старт обмена с Вендотеком
+	step	:INT;	//Шаги выполнения кейса
+	
+	strSend_IDL	:STRING;
+	strSend_VRP	:STRING;
+	strSend_FIN	:STRING;
+	strSend_ABR	:STRING;
+	
+	strAnswerHex		:STRING(100); //Ответ в виде строки
+	strAnswerHexTemp	:STRING(100); //Ответ в виде строки
+	strAnswerGood		:STRING(100); //Читабельный ответ
+	
+	Send_IDL, Send_VRP, Send_FIN, Send_ABR	:BOOL;
+	
+	ParamId		:BYTE;	//идентификатор принимаемого параметра
+	ParamLen	:INT;	//длина принимаемого параметра
+	ParamData	:ARRAY[1..50] OF BYTE;	//данные принимаемого параметра
+	
+	MsgName	:STRING(3);	
+	OperationNumber	:STRING(8);
+	OperationNumberSend	:DWORD;
+	strOperationNumberSend	:STRING(8);	
+	OperationNumberLen, OperationNumberSendLen	:INT;
+	
+	ApprovedAmount	:STRING(12);	//Одобренная сумма
+	OperationTimeOut	:STRING(3);	//
+	EventNumber	:STRING(8);	//
+	LocalTime	:STRING;
+	
+	hSocket:UDINT; //Для сокета
+	sa:SOCKADDRESS; //Для сокета
+	
+	strIpAddres		:STRING	:='192.168.28.186'; //IP вендотека
+	port			:WORD	:=62801; //Порт вендотека
+	result			:UDINT; //Для сокета
+	numberOfBytes	:DINT; //Для сокета
+	mode			:INT:=1; //Для сокета
+	
+	
+	LenAnswer	:INT;	//Длина ответа от Вендотек
+
+	tires:INT; //Переменная таймаута ожидания
+	SendData:ARRAY[1..50] OF BYTE;	//Данные для отправки в Вендотек
+	ResvData:ARRAY[1..50] OF BYTE;	//Данные полученные от Вендотек
+		
+	sum1,sum2,sum3,sum4: BYTE; //Дробим входную сумму на отдельные символы
+	CHRsum1,CHRsum2,CHRsum3,CHRsum4: BYTE; //Для преобразований входной суммы
+	STRsum1,STRsum2,STRsum3,STRsum4: STRING; //Для преобразований входной суммы
+
+	err	:INT;	//Ошибки шагов	
+	
+	opros:INT; //Переменная опроса
+	i,k,n:INT;	
+	r_trig_Send_IDL, r_trig_Send_VRP, r_trig_Send_FIN, r_trig_Send_ABR	:r_trig;
+	r_trig_SUM_IN	:r_trig;
+	r_trig_Cancel	:r_trig;
+	SendMoney	:BOOL;
+	SendMoneyStep	:INT;
+	resetSumOut	:ton;
+	tonShowScreenPay	:ton;	//Задержка показа экрана приложите карту, т.к. сумма на Вендотек отображается не сразу
+	StartTonShowScreenPay	:BOOL;
+END_VAR
+
+
+//Функция BYTE_TO_STRH конвертирует значение IN типа BYTE в строку, содержащую это значение в 16-ричной системе счисления.
+
+resetSumOut(IN:= , PT:= T#1S, Q=> , ET=> );
+
+r_trig_SUM_IN(CLK:= SUM_IN>0, Q=> );
+IF r_trig_SUM_IN.Q THEN
+	SendMoney := TRUE;
+	SendMoneyStep := 1;
+END_IF
+
+r_trig_Cancel(CLK:= Cancel, Q=> );
+IF r_trig_Cancel.Q THEN
+	Send_ABR := TRUE;
+	SendMoney := FALSE;
+END_IF
+
+IF SendMoney THEN
+	CASE SendMoneyStep OF		
+	1:	
+		Send_IDL := TRUE;
+		ShowScreenPay := FALSE;
+		HideScreenPay := FALSE;
+		SendMoneyStep:=2;
+		
+	2:	
+		IF Send_IDL = FALSE THEN
+			Send_VRP := TRUE;
+			SendMoneyStep:=3;
+			StartTonShowScreenPay := TRUE;
+		END_IF
+	
+	3:	
+		IF Send_VRP = FALSE THEN	//Закончился обмен VRP
+			IF LEN(STR:= ApprovedAmount)>=3 THEN
+				SUM_OUT:=STRING_TO_WORD(LEFT(STR:= ApprovedAmount, SIZE:= LEN(STR:= ApprovedAmount)-2));
+			ELSE
+				SUM_OUT:=STRING_TO_WORD(ApprovedAmount);
+			END_IF
+			//SUM_IN := 0;
+			resetSumOut.IN := TRUE;	//активируем таймер на обнуление.
+			
+			IF SUM_OUT > 0 THEN		//получили сумму, шлем FIN
+				Send_FIN := TRUE;
+				SendMoneyStep:=4;
+			ELSE
+				SendMoneyStep:=5;
+			END_IF
+			
+			HideScreenPay := TRUE;	//Снимать будем после скрытия
+		END_IF		
+	
+	4:	
+		IF Send_FIN = FALSE THEN
+			SendMoneyStep:=5;
+		END_IF
+	
+	
+	5:	//успешно завершили
+		SUM_IN := 0;
+		SendMoney := FALSE;	
+	END_CASE
+END_IF
+
+
+//Если зашла сумма в ФБ то запускаем выполнение шагов кейса.
+// IF SUM_IN>0 THEN
+// 	start:=TRUE;
+// ELSE
+// 	//Не даём устройству уснуть опрашиваем раз в минуту
+// 	opros:=opros+1;
+// 	IF opros>3000 THEN
+// 		start:=TRUE;
+// 		opros:=0;	
+// 	END_IF
+//END_IF
+
+Create_Send();
+SendDataVTK();
+
+IF resetSumOut.Q THEN
+	resetSumOut.IN := FALSE;
+	SUM_OUT:=0; //обнуляем сумму выхода 
+END_IF
+
+tonShowScreenPay(IN:= StartTonShowScreenPay, PT:= T#2S, Q=> , ET=> );
+IF tonShowScreenPay.q THEN
+	StartTonShowScreenPay := FALSE;
+	ShowScreenPay := TRUE;
+END_IF
+

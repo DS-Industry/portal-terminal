@@ -11,10 +11,10 @@ from .models import (
     WashOrder,
 )
 
+from .vendotek import VendotekClient
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env_file = BASE_DIR / ".env"
-
 
 try:
     CARWASH_IP = os.getenv("CARWASH_IP")
@@ -22,13 +22,32 @@ try:
 except Exception as e:
     print(f"Ошибка при загрузке переменных окружения CARWASH: {e}")
 
-def bank_card_payment():
-    """
-    Симуляция оплаты банковской картой.
-    """
-    print("[LOG] Выбран тип оплаты: bank_card")
-    time.sleep(5)
-    print("[LOG] Оплата банковской картой прошла успешно.")
+
+def bank_card_payment(order):
+    client = VendotekClient.from_db()
+    if not client:
+        print("[VENDOTEK] Не удалось получить конфигурацию терминала")
+        return False
+
+    if not client.connect():
+        print("[VENDOTEK] Ошибка подключения к терминалу")
+        return False
+
+    try:
+        amount = int(order.program_price)
+
+        response = client.process_payment(amount)
+
+        if not response.success:
+            print(f"[VENDOTEK] Ошибка оплаты: {response.error_message}")
+            return False
+
+        print(f"[VENDOTEK] Оплата успешна: сумма={response.approved_amount}, операция={response.operation_number}")
+
+        return True
+
+    finally:
+        client.disconnect()
 
 
 def cash_payment():
@@ -50,27 +69,27 @@ def loyalty_card_payment(order, ucn):
         terminal = TerminalStatus.objects.first()
         if not terminal:
             raise Exception("TerminalStatus не найден")
-        
+
         dev_id = terminal.identifier
         sum_amount = int(order.program_price)
-        
+
         url = f"http://{CARWASH_IP}:{CARWASH_PORT}/cwash/api/service/card_oper"
         headers = {
             "dev_id": str(dev_id),
             "ucn": str(ucn),
-            "token": "0", # Хардкод
+            "token": "0",  # Хардкод
             "sum": str(sum_amount)
         }
-        
+
         print(f"[LOYALTY] Отправка запроса на списание: {url}")
         print(f"[LOYALTY] Заголовки: {headers}")
-        
+
         response = requests.post(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
-        
+
         print(f"[LOYALTY] Ответ от сервиса лояльности: {data}")
-        
+
         errcode = data.get("errcode")
         if errcode == 200:
             print(f"[LOYALTY] Списание успешно для заказа {order.transaction_id}")
@@ -79,7 +98,7 @@ def loyalty_card_payment(order, ucn):
             errmes = data.get("errmes", "Неизвестная ошибка")
             print(f"[LOYALTY] Ошибка списания для заказа {order.transaction_id}: {errmes}")
             return False, errmes
-            
+
     except requests.exceptions.RequestException as e:
         error_msg = f"Ошибка сети при запросе к сервису лояльности: {e}"
         print(f"[LOYALTY] {error_msg}")
@@ -88,7 +107,7 @@ def loyalty_card_payment(order, ucn):
         error_msg = f"Неожиданная ошибка при обработке оплаты лояльностью: {e}"
         print(f"[LOYALTY] {error_msg}")
         return False, error_msg
-    
+
 
 def mobile_app_payment(order):
     """
@@ -101,8 +120,9 @@ def mobile_app_payment(order):
     Возвращает:
         Response: DRF Response с QR-кодом или ошибкой.
     """
-    print(f"[MOBILE-PAYMENT-QR] Пользователь запросил переход в старое мобильное приложение для заказа {order.transaction_id}")
-    
+    print(
+        f"[MOBILE-PAYMENT-QR] Пользователь запросил переход в старое мобильное приложение для заказа {order.transaction_id}")
+
     # 1. Меняем статус заказа
     order.status = WashOrder.Status.MOBILE_QR_REQUEST
     # 2. Получаем QR-код из TerminalStatus
@@ -111,11 +131,11 @@ def mobile_app_payment(order):
         error_msg = "QR-код для старого мобильного приложения не настроен в TerminalStatus."
         print(f"[MOBILE-PAYMENT-QR] ОШИБКА: {error_msg}")
         return Response({'error': error_msg}, status=500)
-    
+
     qr_code_string = terminal_status.mobile_app_qr_code
     order.save()
     print(f"[MOBILE-PAYMENT-QR] Статус заказа {order.transaction_id} обновлён на MOBILE_QR_REQUEST. QR-код получен.")
-    
+
     return Response({
         'message': 'Запрос на переход в старое мобильное приложение принят.',
         'qr_code': qr_code_string

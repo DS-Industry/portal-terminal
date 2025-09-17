@@ -164,7 +164,7 @@ class WashOrderPaymentView(APIView):
             cash_payment()
 
         elif payment_type == "bank_card":
-            bank_card_payment()
+            bank_card_payment(order)
 
         elif payment_type == "mobile_app":
             # Для старого мобильного приложения возвращаем QR немедленно

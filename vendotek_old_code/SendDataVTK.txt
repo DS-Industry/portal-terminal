@@ -1,0 +1,77 @@
+IF start THEN
+	CASE step OF
+	//Выбор шагов исходя из сообщения
+	0:
+		SysSockClose(hsocket);
+		step:=1;
+		tires:=0;
+		
+	1:	//Открываем порт
+		sa.sin_family:=SOCKET_AF_INET;
+		sa.sin_port:=SysSockHtons(port);
+		result:=SysSockInetAddr(strIpAddres, ADR(sa.sin_addr.ulAddr));
+	
+		hSocket:=SysSockCreate(SOCKET_AF_INET, SOCKET_STREAM, SOCKET_IPPROTO_TCP, ADR(result));
+		result:=SysSockIoctl(hSocket, SOCKET_FIONBIO, ADR(mode));
+		step:=2;
+		
+		err := 0;
+	
+	
+	2:	//Коннект к вендотеку
+		tires:=tires+1;
+		result:=SysSockConnect(hSocket, ADR(sa), SIZEOF(sa));
+		IF result>0 THEN
+			step:=3;
+			tires:=0;
+		END_IF
+		
+		IF tires>100	THEN
+			err := 1;
+			step:=5;
+		END_IF	
+	
+	3:	//Отправляем запрос 
+		tires:=tires+1;
+		numberOfBytes:=SysSockSend(hSocket, ADR(SendData), 256, 0, ADR(result));
+		IF numberOfBytes <> 0	THEN
+			step:=4;
+			tires:=0;
+		END_IF
+		
+		IF tires>1000	THEN
+			err := 2;
+			step:=5;
+		END_IF
+	
+	4:	//Получаем ответ
+		tires:=tires+1;
+		
+		numberOfBytes:=SysSockRecv(hSocket, ADR(ResvData), 256, 0, ADR(result));
+		IF numberOfBytes <> 0 	THEN
+			ParseTheAnswer();			
+ 			step:=5;
+ 			tires:=0;			
+		END_IF
+		
+		IF tires>6000 THEN	//очень важный тайм-аут именно 4000!
+			err:=3;
+			step:=5;			
+		END_IF
+	
+	
+	5:	//Закрываем соединение
+		SysSockClose(hsocket);
+		step:=100;
+		tires:=0;
+	
+	100: //Всё обнуляем и выключаем выполнение Case
+//	 	Step:=0;
+		start:=FALSE;
+		
+		Send_IDL := FALSE;
+		Send_VRP := FALSE;
+		Send_FIN := FALSE;
+		Send_ABR := FALSE;
+	END_CASE
+END_IF
