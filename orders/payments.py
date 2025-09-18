@@ -42,8 +42,6 @@ def bank_card_payment(order):
             print(f"[VENDOTEK] Ошибка оплаты: {response.error_message}")
             return False, response.error_message
 
-        print(f"[VENDOTEK] Оплата успешна: сумма={response.approved_amount}, операция={response.operation_number}")
-
         return True, ""
 
     except Exception as e:
@@ -70,7 +68,6 @@ def loyalty_card_payment(order, ucn):
     Выполняет запрос на списание средств.
     """
     try:
-        # Получаем идентификатор терминала
         terminal = TerminalStatus.objects.first()
         if not terminal:
             raise Exception("TerminalStatus не найден")
@@ -82,18 +79,13 @@ def loyalty_card_payment(order, ucn):
         headers = {
             "dev_id": str(dev_id),
             "ucn": str(ucn),
-            "token": "0",  # Хардкод
+            "token": "0",
             "sum": str(sum_amount)
         }
-
-        print(f"[LOYALTY] Отправка запроса на списание: {url}")
-        print(f"[LOYALTY] Заголовки: {headers}")
 
         response = requests.post(url, headers=headers, timeout=10)
         response.raise_for_status()
         data = response.json()
-
-        print(f"[LOYALTY] Ответ от сервиса лояльности: {data}")
 
         errcode = data.get("errcode")
         if errcode == 200:
@@ -125,12 +117,8 @@ def mobile_app_payment(order):
     Возвращает:
         Response: DRF Response с QR-кодом или ошибкой.
     """
-    print(
-        f"[MOBILE-PAYMENT-QR] Пользователь запросил переход в старое мобильное приложение для заказа {order.transaction_id}")
 
-    # 1. Меняем статус заказа
     order.status = WashOrder.Status.MOBILE_QR_REQUEST
-    # 2. Получаем QR-код из TerminalStatus
     terminal_status = TerminalStatus.objects.first()
     if not terminal_status or not terminal_status.mobile_app_qr_code:
         error_msg = "QR-код для старого мобильного приложения не настроен в TerminalStatus."

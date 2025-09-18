@@ -139,7 +139,6 @@ class VendotekClient:
             if not self.socket:
                 raise Exception("Соединение не установлено")
 
-            print(f"[VENDOTEK] Отправка: {message.hex().upper()}")
             self.socket.sendall(message)
             return True
         except Exception as e:
@@ -152,22 +151,17 @@ class VendotekClient:
             if not self.socket:
                 raise Exception("Соединение не установлено")
 
-            # Читаем первые 2 байта для определения длины
             length_data = self.socket.recv(2)
             if len(length_data) != 2:
                 raise Exception("Не удалось получить длину сообщения")
 
-            # Длина сообщения (без первых 2 байт)
             message_length = struct.unpack('>H', length_data)[0]
-            print(f"[VENDOTEK] Ожидаемая длина ответа: {message_length} байт")
 
-            # Читаем остальную часть сообщения
             response_data = self.socket.recv(message_length)
             if len(response_data) != message_length:
                 raise Exception(f"Получено {len(response_data)} байт, ожидалось {message_length}")
 
             full_response = length_data + response_data
-            print(f"[VENDOTEK] Получен ответ: {full_response.hex().upper()}")
             return full_response
 
         except Exception as e:
@@ -180,14 +174,12 @@ class VendotekClient:
             if len(response) < 4:
                 return VendotekResponse(success=False, error_message="Слишком короткий ответ")
 
-            # Проверяем заголовок ответа (0x97 0xFB)
             if response[2] != 0x97 or response[3] != 0xFB:
                 return VendotekResponse(success=False, error_message="Неверный заголовок ответа")
 
             result = VendotekResponse(success=True)
 
-            # Парсим параметры
-            i = 4  # Начинаем с 4-го байта (после заголовка)
+            i = 4
             while i < len(response) - 1:
                 param_id = response[i]
                 param_len = response[i + 1]
@@ -212,14 +204,12 @@ class VendotekClient:
 
                 i += 2 + param_len
 
-            print(f"Результат парсинга: {result}")
             return result
 
         except Exception as e:
             return VendotekResponse(success=False, error_message=f"Ошибка парсинга: {e}")
 
     def send_idl(self) -> VendotekResponse:
-        print("[VENDOTEK] Отправка IDL (инициализация)")
         message = self._create_idl_message()
         if not self._send_message(message):
             return VendotekResponse(success=False, error_message="Ошибка отправки IDL")
@@ -229,7 +219,6 @@ class VendotekClient:
         return self._parse_response(response)
 
     def send_vrp(self, amount: int) -> VendotekResponse:
-        print(f"[VENDOTEK] Отправка VRP (запрос оплаты {amount} руб)")
         message = self._create_vrp_message(amount, str(self.operation_number))
         if not self._send_message(message):
             return VendotekResponse(success=False, error_message="Ошибка отправки VRP")
@@ -239,7 +228,6 @@ class VendotekClient:
         return self._parse_response(response)
 
     def send_fin(self, amount: int) -> VendotekResponse:
-        print(f"[VENDOTEK] Отправка FIN (завершение {amount} руб)")
         message = self._create_fin_message(amount, str(self.operation_number))
         if not self._send_message(message):
             return VendotekResponse(success=False, error_message="Ошибка отправки FIN")
@@ -250,7 +238,6 @@ class VendotekClient:
 
     def send_abr(self) -> VendotekResponse:
         """Отправляет команду отмены"""
-        print("[VENDOTEK] Отправка ABR (отмена)")
         message = self._create_abr_message()
         if not self._send_message(message):
             return VendotekResponse(success=False, error_message="Ошибка отправки ABR")
@@ -269,14 +256,11 @@ class VendotekClient:
             if not idl_response.success:
                 return idl_response
 
-            print(f"[VENDOTEK] IDL успешно: {idl_response.message_type}")
-
             try:
                 self.operation_number = int(idl_response.operation_number) + 1 if idl_response.operation_number else 1
             except Exception:
                 self.operation_number = 1
 
-            # 2. Запрос оплаты
             vrp_response = self.send_vrp(amount)
             if not vrp_response.success:
                 return vrp_response
@@ -290,21 +274,15 @@ class VendotekClient:
                     error_message=f"Сумма оплаты не совпадает: ожидали {amount}, получили {approved}"
                 )
 
-            print(
-                f"[VENDOTEK] VRP успешно: сумма={vrp_response.approved_amount}, операция={vrp_response.operation_number}")
 
-            # 3. Завершение
             fin_response = self.send_fin(amount)
             if not fin_response.success:
                 return fin_response
 
-            print(f"[VENDOTEK] FIN успешно: {fin_response.message_type}")
 
             idl_response_end = self.send_idl()
             if not idl_response_end.success:
                 return idl_response_end
-
-            print(f"[VENDOTEK] IDL успешно: {idl_response_end.message_type}")
 
             return VendotekResponse(
                 success=True,

@@ -151,7 +151,6 @@ class WashOrderPaymentView(APIView):
                 {"error": "Невозможно оплатить заказ с текущим статусом."}, status=400
             )
 
-        # Перед началом конкретной оплаты фиксируем ожидание оплаты
         order.status = WashOrder.Status.WAITING_PAYMENT
         order.payment_type = payment_type
         if ucn:
@@ -159,25 +158,23 @@ class WashOrderPaymentView(APIView):
         order.save()
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
 
-        # Обработка оплаты
         if payment_type == "cash":
             cash_payment()
 
         elif payment_type == "bank_card":
-            print(f"[LOYALTY] Начало обработки оплаты по банковской карте для заказа {order.transaction_id}")
+            print(f"[VENDOTEK] Начало обработки оплаты по банковской карте для заказа {order.transaction_id}")
             success, error_message = bank_card_payment(order)
             if not success:
                 order.status = WashOrder.Status.FAILED
                 order.save(update_fields=["status"])
-                print(f"[LOYALTY] Оплата не удалась для заказа {order.transaction_id}. Статус изменен на FAILED.")
+                print(f"[VENDOTEK] Оплата не удалась для заказа {order.transaction_id}. Статус изменен на FAILED.")
                 return Response(
                     {"error": f"Ошибка оплаты по банковской карте: {error_message}"},
                     status=400,
                 )
-            print(f"[LOYALTY] Оплата успешно завершена для заказа {order.transaction_id}")
+            print(f"[VENDOTEK] Оплата успешно завершена для заказа {order.transaction_id}")
 
         elif payment_type == "mobile_app":
-            # Для старого мобильного приложения возвращаем QR немедленно
             return mobile_app_payment(order)
 
         elif payment_type == "loyalty_card":
@@ -196,10 +193,8 @@ class WashOrderPaymentView(APIView):
         else:
             return Response({"error": "Неверный тип оплаты"}, status=400)
 
-        # После успешной оплаты — статус "оплачен"
         order.status = WashOrder.Status.PAYED
 
-        # Чек печатаем ТОЛЬКО для наличных и банковской карты
         if payment_type in ("cash", "bank_card"):
             qr_code = send_receipt_request(order)
             if qr_code:
@@ -207,9 +202,7 @@ class WashOrderPaymentView(APIView):
                 print(f"[QR] Чек успешно получен: {qr_code}")
             else:
                 print("[QR] Не удалось получить чек.")
-        # для loyalty_card — НЕ печатаем чек
 
-        # Обработка очереди
         if is_car_wash_busy():
             try:
                 queue_number, queue_position = assign_queue_number_and_position()
@@ -220,7 +213,6 @@ class WashOrderPaymentView(APIView):
                     f"номер={queue_number}, позиция={queue_position}"
                 )
             except ValueError as e:
-                # сохранять PAYED не будем, раз очередь не удалось назначить
                 return Response({"error": str(e)}, status=400)
         else:
             print(

@@ -60,7 +60,6 @@ def _run_wash(order_id: int):
     except Exception:
         pause_sec = 5
 
-    print(f"[WASH] Пауза между мойками: {pause_sec} сек...")
     time.sleep(pause_sec)
 
     # 4) Запуск следующего из очереди

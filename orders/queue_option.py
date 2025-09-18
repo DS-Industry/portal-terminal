@@ -73,7 +73,6 @@ def update_queue_positions_after_start():
         elif order.queue_position is not None and order.queue_position > 1:
             order.queue_position -= 1
         order.save()
-    print("[LOG] Очередь обновлена после запуска мойки.")
 
 
 def try_run_next_car_wash():
