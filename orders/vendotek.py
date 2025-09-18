@@ -271,10 +271,24 @@ class VendotekClient:
 
             print(f"[VENDOTEK] IDL успешно: {idl_response.message_type}")
 
+            try:
+                self.operation_number = int(idl_response.operation_number) + 1 if idl_response.operation_number else 1
+            except Exception:
+                self.operation_number = 1
+
             # 2. Запрос оплаты
             vrp_response = self.send_vrp(amount)
             if not vrp_response.success:
                 return vrp_response
+
+            approved = int(vrp_response.approved_amount) if vrp_response.approved_amount else 0
+
+            if approved != amount:
+                self.send_idl()
+                return VendotekResponse(
+                    success=False,
+                    error_message=f"Сумма оплаты не совпадает: ожидали {amount}, получили {approved}"
+                )
 
             print(
                 f"[VENDOTEK] VRP успешно: сумма={vrp_response.approved_amount}, операция={vrp_response.operation_number}")

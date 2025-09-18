@@ -164,7 +164,17 @@ class WashOrderPaymentView(APIView):
             cash_payment()
 
         elif payment_type == "bank_card":
-            bank_card_payment(order)
+            print(f"[LOYALTY] Начало обработки оплаты по банковской карте для заказа {order.transaction_id}")
+            success, error_message = bank_card_payment(order)
+            if not success:
+                order.status = WashOrder.Status.FAILED
+                order.save(update_fields=["status"])
+                print(f"[LOYALTY] Оплата не удалась для заказа {order.transaction_id}. Статус изменен на FAILED.")
+                return Response(
+                    {"error": f"Ошибка оплаты по банковской карте: {error_message}"},
+                    status=400,
+                )
+            print(f"[LOYALTY] Оплата успешно завершена для заказа {order.transaction_id}")
 
         elif payment_type == "mobile_app":
             # Для старого мобильного приложения возвращаем QR немедленно

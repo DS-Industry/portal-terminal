@@ -1,4 +1,6 @@
 import os
+import sys
+import logging
 
 from dotenv import load_dotenv
 from pathlib import Path
@@ -104,3 +106,78 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 MODBUS_HOST = os.getenv('MODBUS_HOST', '192.168.53.120')
 MODBUS_PORT = int(os.getenv('MODBUS_PORT', '502'))
 MODBUS_TIMEOUT = int(os.getenv('MODBUS_TIMEOUT', '10'))
+
+LOG_DIR = os.environ.get('LOG_DIR', os.path.join(BASE_DIR, 'logs'))
+os.makedirs(LOG_DIR, exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{asctime} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(LOG_DIR, 'django.log'),
+            'formatter': 'verbose',
+        },
+        'console_file': {
+            'level': 'INFO',
+            'class': 'logging.FileHandler',
+            'filename': os.path.join(LOG_DIR, 'console.log'),
+            'formatter': 'simple',
+        },
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'FILTERED_CONSOLE': {
+            'handlers': ['console_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+
+
+class FilteredStreamToLogger:
+    def __init__(self, logger, level):
+        self.logger = logger
+        self.level = level
+        self.target_prefixes = [
+            '[LOG]', '[LOYALTY]', '[QR]', '[VENDOTEK]',
+            '[INIT]', '[PLC-PROGRAMS]', '[PLC-STATUS]',
+            '[PLC]', '[DS]', '[PLC-PRICES]'
+        ]
+
+    def write(self, buf):
+        if any(buf.startswith(prefix) for prefix in self.target_prefixes) and buf.strip():
+            for line in buf.rstrip().splitlines():
+                self.logger.log(self.level, line.rstrip())
+
+    def flush(self):
+        pass
+
+
+# Инициализация перехвата stdout
+if not hasattr(sys, 'stdout_original'):
+    sys.stdout_original = sys.stdout
+    stdout_logger = logging.getLogger('FILTERED_CONSOLE')
+    sys.stdout = FilteredStreamToLogger(stdout_logger, logging.INFO)

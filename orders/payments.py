@@ -27,11 +27,11 @@ def bank_card_payment(order):
     client = VendotekClient.from_db()
     if not client:
         print("[VENDOTEK] Не удалось получить конфигурацию терминала")
-        return False
+        return False, "Не удалось получить конфигурацию терминала"
 
     if not client.connect():
         print("[VENDOTEK] Ошибка подключения к терминалу")
-        return False
+        return False, "Ошибка подключения к терминалу"
 
     try:
         amount = int(order.program_price)
@@ -40,11 +40,16 @@ def bank_card_payment(order):
 
         if not response.success:
             print(f"[VENDOTEK] Ошибка оплаты: {response.error_message}")
-            return False
+            return False, response.error_message
 
         print(f"[VENDOTEK] Оплата успешна: сумма={response.approved_amount}, операция={response.operation_number}")
 
-        return True
+        return True, ""
+
+    except Exception as e:
+        error_msg = f"Неожиданная ошибка при обработке оплаты картой: {e}"
+        print(f"[VENDOTEK] {error_msg}")
+        return False, error_msg
 
     finally:
         client.disconnect()

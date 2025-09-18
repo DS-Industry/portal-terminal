@@ -26,8 +26,11 @@ services:
       DB_PORT: "5432"
       DEBUG: "${DEBUG:-False}"
       WEB_CONCURRENCY: "1"
+      LOG_DIR: "/app/logs"
     ports:
       - "8000:8000"
+    volumes:
+      - ./django_logs:/app/logs
     restart: unless-stopped
 
 volumes:
