@@ -17,7 +17,12 @@ COPY . .
 CMD ["sh","-lc","echo 'Waiting for Postgres at ${DB_HOST}:${DB_PORT} ...' && \
 until nc -z \"${DB_HOST:-db}\" \"${DB_PORT:-5432}\"; do sleep 1; done && \
 echo 'Postgres is up.' && \
-python manage.py migrate --noinput && \
+echo '=== Проверка текущих миграций ===' && \
+python manage.py showmigrations && \
+echo '=== Применение миграций ===' && \
+python manage.py migrate --noinput --verbosity=2 && \
+echo '=== Проверка миграций после применения ===' && \
+python manage.py showmigrations && \
 python manage.py shell -c \"from django.contrib.auth import get_user_model; User = get_user_model(); \
 User.objects.filter(username='portal').exists() or \
 User.objects.create_superuser('portal', 'portal@portal.com', 'portal')\" && \
