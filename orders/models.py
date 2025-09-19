@@ -293,3 +293,30 @@ class VendotekServerConfig(models.Model):
     class Meta:
         verbose_name = "Настройки API Vendotek"
         verbose_name_plural = "Настройки API Vendotek"
+
+
+class ManageServerConfig(models.Model):
+    """
+    Настройки сервера для системы мониторинга
+    """
+
+    ip_address = models.CharField(
+        max_length=100,
+        help_text="IP-адрес терминала, например 46.19.66.141"
+    )
+    port = models.IntegerField(
+        default=5001,
+        help_text="Порт терминала, например 5001"
+    )
+    type = models.CharField(
+        max_length=50,
+        default="CW",
+        help_text="Тип сервера (например CW, TEST, BACKUP)"
+    )
+
+    def __str__(self):
+        return f"ManageServer: {self.ip_address}:{self.port} [{self.type}]"
+
+    class Meta:
+        verbose_name = "Настройки API системы мониторинга"
+        verbose_name_plural = "Настройки API системы мониторинга"

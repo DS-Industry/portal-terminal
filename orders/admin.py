@@ -8,7 +8,8 @@ from .models import (
     TerminalStatus,
     WashSettings,
     ReceiptServerConfig,
-    VendotekServerConfig
+    VendotekServerConfig,
+    ManageServerConfig
 )
 
 
@@ -84,3 +85,9 @@ class ReceiptServerConfigAdmin(SingletonAdmin):
 @admin.register(VendotekServerConfig)
 class VendotekServerConfigAdmin(SingletonAdmin):
     list_display = ('ip_address', 'port',)
+
+
+@admin.register(ManageServerConfig)
+class ManageServerConfigAdmin(admin.ModelAdmin):
+    list_display = ('id', 'ip_address', 'port', 'type',)
+    fields = ('ip_address', 'port', 'type',)
