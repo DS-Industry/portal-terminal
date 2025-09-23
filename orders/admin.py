@@ -22,11 +22,11 @@ class SingletonAdmin(admin.ModelAdmin):
 @admin.register(Program)
 class ProgramAdmin(admin.ModelAdmin):
     """Настройка отображения таблицы программ мойки в админке.
-    Показываем ID, название, цену, описание, время выполнения и новое поле id_service.
+    Показываем ID, название, цену, описание, время выполнения, id_service и функции.
     """
-    list_display = ('id', 'name', 'price', 'description', 'duration', 'id_service')
+    list_display = ('id', 'name', 'price', 'description', 'duration', 'id_service', 'functions')
     ordering = ('id',)
-    fields = ('name', 'price', 'description', 'duration', 'id_service')
+    fields = ('name', 'price', 'description', 'duration', 'id_service', 'functions')
 
 
 @admin.register(WashOrder)

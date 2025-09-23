@@ -16,9 +16,9 @@ from .plc_service import sync_programs_from_plc
 # Настройки из переменных окружения
 try:
     PLC_SYNC_ENABLED = os.getenv("PLC_SYNC_ENABLED", "True").lower() == "true"
-    PLC_PROGRAMS_INTERVAL = int(os.getenv("PLC_PROGRAMS_INTERVAL_MINUTES", "60"))
-    PLC_PRICES_INTERVAL = int(os.getenv("PLC_PRICES_INTERVAL_MINUTES", "5"))
-    PLC_STATUS_INTERVAL = int(os.getenv("PLC_STATUS_INTERVAL_MINUTES", "10"))
+    PLC_PROGRAMS_INTERVAL = int(os.getenv("PLC_PROGRAMS_INTERVAL_MINUTES", "1"))
+    PLC_PRICES_INTERVAL = int(os.getenv("PLC_PRICES_INTERVAL_MINUTES", "1"))
+    PLC_STATUS_INTERVAL = int(os.getenv("PLC_STATUS_INTERVAL_MINUTES", "1"))
     print(f"PLC_SYNC_ENABLED: {PLC_SYNC_ENABLED}, Programs: {PLC_PROGRAMS_INTERVAL}min, Prices: {PLC_PRICES_INTERVAL}min")
 except Exception as e:
     print(f"Ошибка при загрузке переменных окружения PLC: {e}")

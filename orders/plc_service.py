@@ -1,87 +1,76 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
-Сервис для работы с PLC данными
-Читает программы из OWEN PLC и сохраняет их в базу данных
+Simple PLC service for syncing programs from OWEN PLC to database
 """
 
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 from django.db import transaction
-from django.utils import timezone
-from .modbus_client import OwenPLCCarWash
+from .modbus_client import ModbusClient
 from .models import Program
 
 logger = logging.getLogger(__name__)
 
 
-class PLCDataService:
-    """Сервис для работы с данными PLC"""
+class PLCService:
+    """Simple PLC service for program synchronization"""
     
     def __init__(self, host: str = None, port: int = None, timeout: int = None):
-        """
-        Инициализация сервиса
-        
-        Args:
-            host: IP-адрес PLC
-            port: Порт Modbus
-            timeout: Таймаут подключения
-        """
-        self.plc = OwenPLCCarWash(host, port, timeout)
+        self.client = ModbusClient(host, port, timeout)
         self.connected = False
     
     def connect(self) -> bool:
-        """Подключение к PLC"""
-        self.connected = self.plc.connect()
+        """Connect to PLC"""
+        self.connected = self.client.connect()
         if self.connected:
-            logger.info("✅ PLC сервис подключен")
+            logger.info("Connected to PLC")
         else:
-            logger.error("❌ Не удалось подключиться к PLC")
+            logger.error("Failed to connect to PLC")
         return self.connected
     
     def disconnect(self):
-        """Отключение от PLC"""
+        """Disconnect from PLC"""
         if self.connected:
-            self.plc.disconnect()
+            self.client.disconnect()
             self.connected = False
-            logger.info("🔌 PLC сервис отключен")
+            logger.info("Disconnected from PLC")
     
-    def sync_programs_from_plc(self) -> Dict[str, any]:
-        """
-        Синхронизация программ из PLC с базой данных
-        
-        Returns:
-            Словарь с результатами синхронизации
-        """
+    def sync_programs(self) -> Dict:
+        """Sync all programs from PLC to database"""
         if not self.connected:
-            logger.error("❌ PLC не подключен")
-            return {'success': False, 'error': 'PLC не подключен'}
+            logger.error("PLC not connected")
+            return {'success': False, 'error': 'PLC not connected'}
         
         try:
-            logger.info("🔄 Начинаем синхронизацию программ из PLC")
+            logger.info("Starting program sync from PLC")
             
-            # Получаем все программы из PLC
-            programs_json = self.plc.get_all_programs_json()
+            # Get all programs from PLC
+            programs_data = self.client.read_all_programs()
             
-            if not programs_json:
-                logger.warning("⚠️ Не удалось получить программы из PLC")
-                return {'success': False, 'error': 'Не удалось получить программы из PLC'}
+            if not programs_data:
+                logger.warning("No programs received from PLC")
+                return {'success': False, 'error': 'No programs received from PLC'}
+            
+            # Get all prices from PLC
+            prices_data = self.client.read_all_prices()
             
             results = {
                 'success': True,
-                'total_programs': len(programs_json),
+                'total_programs': len(programs_data),
                 'created': 0,
                 'updated': 0,
-                'errors': 0,
-                'programs': []
+                'errors': 0
             }
             
-            # Обрабатываем каждую программу
-            for program_name, program_data in programs_json.items():
+            # Process each program
+            for program_name, program_data in programs_data.items():
                 try:
-                    result = self._sync_single_program(program_data)
-                    results['programs'].append(result)
+                    # Get price for this program
+                    program_number = int(program_name.replace('Program', ''))
+                    price_data = prices_data.get(program_name, {})
+                    regular_price = price_data.get('regular_price', 0)
                     
+                    result = self._sync_program(program_data, regular_price)
                     if result['status'] == 'created':
                         results['created'] += 1
                     elif result['status'] == 'updated':
@@ -90,73 +79,60 @@ class PLCDataService:
                         results['errors'] += 1
                         
                 except Exception as e:
-                    logger.error(f"❌ Ошибка синхронизации программы {program_name}: {e}")
-                    results['programs'].append({
-                        'program_name': program_name,
-                        'status': 'error',
-                        'error': str(e)
-                    })
+                    logger.error(f"Error syncing program {program_name}: {e}")
                     results['errors'] += 1
             
-            logger.info(f"✅ Синхронизация завершена: создано={results['created']}, обновлено={results['updated']}, ошибок={results['errors']}")
+            logger.info(f"Sync completed: created={results['created']}, updated={results['updated']}, errors={results['errors']}")
             return results
             
         except Exception as e:
-            logger.error(f"❌ Критическая ошибка синхронизации: {e}")
+            logger.error(f"Critical sync error: {e}")
             return {'success': False, 'error': str(e)}
     
-    def _sync_single_program(self, program_data: Dict) -> Dict:
-        """
-        Синхронизация одной программы
-        
-        Args:
-            program_data: JSON данные программы из PLC
-            
-        Returns:
-            Результат синхронизации
-        """
-        program_number = program_data['program_number']
-        program_name = f"Программа {program_number}"
+    def _sync_program(self, program_data: Dict, price: float = 0) -> Dict:
+        """Sync single program to database"""
+        program_number = int(program_data['program_name'].replace('Program', ''))
+        program_name = f"Program {program_number}"
         
         try:
             with transaction.atomic():
-                # Ищем существующую программу по номеру
+                # Extract function names from steps (functions is array of objects)
+                functions_list = self._extract_functions(program_data['functions'])
+                functions_string = ', '.join(functions_list) if functions_list else ''
+                
+                # Create or update program
                 program, created = Program.objects.get_or_create(
                     id_service=program_number,
                     defaults={
                         'name': program_name,
-                        'price': 0,  # Цена будет обновлена отдельно
-                        'description': program_data['description'],
-                        'duration': self._calculate_duration(program_data['steps'])
+                        'price': price,
+                        'description': f"Program {program_number} from PLC",
+                        'duration': len(functions_list),
+                        'functions': functions_string
                     }
                 )
                 
                 if created:
-                    logger.info(f"✅ Создана новая программа: {program_name}")
+                    logger.info(f"Created new program: {program_name} (price: {price})")
                     status = 'created'
                 else:
-                    # Обновляем существующую программу
-                    program.name = program_name
-                    program.description = program_data['description']
-                    program.duration = self._calculate_duration(program_data['steps'])
+                    # Update existing program with new price and functions
+                    program.price = price
+                    program.functions = functions_string
                     program.save()
-                    
-                    logger.info(f"🔄 Обновлена программа: {program_name}")
+                    logger.info(f"Updated program: {program_name} (price: {price})")
                     status = 'updated'
-                
-                # Сохраняем детали программы в JSON поле (если есть)
-                # Можно добавить JSONField в модель для хранения steps
                 
                 return {
                     'program_name': program_name,
                     'program_number': program_number,
                     'status': status,
-                    'duration': program.duration,
-                    'step_count': program_data['step_count']
+                    'price': price,
+                    'functions': functions_list
                 }
                 
         except Exception as e:
-            logger.error(f"❌ Ошибка сохранения программы {program_name}: {e}")
+            logger.error(f"Error saving program {program_name}: {e}")
             return {
                 'program_name': program_name,
                 'program_number': program_number,
@@ -164,110 +140,49 @@ class PLCDataService:
                 'error': str(e)
             }
     
-    def _calculate_duration(self, steps: List[Dict]) -> int:
-        """
-        Вычисляет длительность программы на основе шагов
-        
-        Args:
-            steps: Список шагов программы
-            
-        Returns:
-            Длительность в минутах
-        """
-        # Простая логика: каждый шаг = 1 минута
-        # В реальности можно сделать более сложную логику
-        active_steps = [step for step in steps if step['value'] != 0]
-        return len(active_steps)
+    def _extract_functions(self, functions: List[Dict]) -> List[str]:
+        """Extract functions from program steps (preserving order and duplicates)"""
+        functions_list = []
+        for func in functions:
+            if 'function' in func and func['function'] and func['function'] != 'Unknown':
+                function_name = func['function']
+                functions_list.append(function_name)
+        return functions_list
     
     def get_program_by_number(self, program_number: int) -> Optional[Program]:
-        """
-        Получение программы по номеру
-        
-        Args:
-            program_number: Номер программы
-            
-        Returns:
-            Объект Program или None
-        """
+        """Get program by number"""
         try:
             return Program.objects.get(id_service=program_number)
         except Program.DoesNotExist:
             return None
     
-    def get_all_programs_from_db(self) -> List[Program]:
-        """
-        Получение всех программ из базы данных
-        
-        Returns:
-            Список всех программ
-        """
+    def get_all_programs(self) -> List[Program]:
+        """Get all programs from database"""
         return Program.objects.all().order_by('id_service')
     
-    def sync_program_prices_from_plc(self) -> Dict[str, any]:
-        """
-        Синхронизация цен программ из PLC (будущая функциональность)
-        
-        Returns:
-            Результат синхронизации цен
-        """
-        # TODO: Реализовать синхронизацию цен
-        logger.info("💰 Синхронизация цен - функция в разработке")
-        return {'success': False, 'error': 'Функция в разработке'}
-    
-    def get_plc_status(self) -> Dict:
-        """
-        Получение статуса PLC подключения
-        
-        Returns:
-            Словарь со статусом
-        """
+    def get_status(self) -> Dict:
+        """Get PLC connection status"""
         return {
             'connected': self.connected,
-            'host': self.plc.host,
-            'port': self.plc.port,
-            'timeout': self.plc.timeout
+            'host': self.client.host,
+            'port': self.client.port
         }
 
 
-# Глобальный экземпляр сервиса
-_plc_service = None
-
-
-def get_plc_service() -> PLCDataService:
-    """
-    Получение глобального экземпляра PLC сервиса
+def sync_programs_from_plc() -> Dict:
+    """Sync programs from PLC to database"""
+    service = PLCService()
     
-    Returns:
-        Экземпляр PLCDataService
-    """
-    global _plc_service
-    if _plc_service is None:
-        _plc_service = PLCDataService()
-    return _plc_service
-
-
-def sync_programs_from_plc() -> Dict[str, any]:
-    """
-    Функция для синхронизации программ из PLC
-    
-    Returns:
-        Результат синхронизации
-    """
-    service = get_plc_service()
-    
-    if not service.connected:
-        if not service.connect():
-            return {'success': False, 'error': 'Не удалось подключиться к PLC'}
+    if not service.connect():
+        return {'success': False, 'error': 'Failed to connect to PLC'}
     
     try:
-        return service.sync_programs_from_plc()
+        return service.sync_programs()
     finally:
-        # Не отключаемся, оставляем соединение для повторного использования
-        pass
+        service.disconnect()
 
 
 if __name__ == "__main__":
-    # Настройка логирования
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
