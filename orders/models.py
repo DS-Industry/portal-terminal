@@ -38,6 +38,22 @@ class Program(models.Model):
         help_text="Идентификатор программы DScloud",
         )
 
+    functions = models.TextField(
+        blank=True,
+        null=True,
+        help_text="Функции программы (через запятую)",
+        )
+
+    def get_functions_list(self):
+        """Возвращает список функций из строки с разделителями"""
+        if not self.functions:
+            return []
+        return [func.strip() for func in self.functions.split(',') if func.strip()]
+
+    def set_functions_list(self, functions_list):
+        """Устанавливает список функций в виде строки с разделителями"""
+        self.functions = ', '.join(functions_list) if functions_list else ''
+
     def __str__(self):
         return f"{self.name} — {self.duration} мин"
 
