@@ -12,6 +12,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
 from .start_carwash import start_car_wash
+from .websocket_service import OrderWebSocketService
+
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env_file = BASE_DIR / ".env"
@@ -216,7 +218,7 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
             program=program,
             program_price=gvl_cardsum,
             transaction_id=f"mobile_app_{_uuid.uuid4()}",
-            status=WashOrder.Status.PROCESSING,
+            status=WashOrder.Status.PAYED,
             ucn=str(gvl_cardnum) if gvl_cardnum else "",
             payment_type=WashOrder.PaymentType.MOBILE_APP,
             gvl_source=gvl_source,
@@ -225,6 +227,7 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
         if ts:
             ts.gvl_cardsum = 0
             ts.save()
+        OrderWebSocketService.send_order_created(new_order)
         print(f"[DS-MOBILE] Немедленный запуск мойки для заказа {new_order.transaction_id}")
         start_car_wash(new_order)
         return True  # в этот тик ничего больше не делаем

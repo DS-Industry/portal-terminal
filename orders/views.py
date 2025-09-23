@@ -2,6 +2,7 @@ import uuid
 
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
+from .websocket_service import OrderWebSocketService
 
 from rest_framework import viewsets
 from rest_framework.response import Response
@@ -126,36 +127,52 @@ class WashOrderPaymentView(APIView):
 
     Принимает JSON:
         {
-            "transaction_id": "uuid",
+            "program_id": 1,
             "payment_type": "cash" | "bank_card" | "mobile_app" | "loyalty_card",
             "ucn": "1234567890"  # опционально, только для loyalty_card
         }
     """
     def post(self, request):
+
         serializer = WashOrderPaymentSerializer(data=request.data)
         if not serializer.is_valid():
             return Response(serializer.errors, status=400)
 
-        transaction_id = serializer.validated_data["transaction_id"]
+        program_id = serializer.validated_data['program_id']
         payment_type = serializer.validated_data["payment_type"]
         ucn = serializer.validated_data.get("ucn", "")
 
-        order = get_object_or_404(WashOrder, transaction_id=transaction_id)
+        try:
+            program = Program.objects.get(pk=program_id)
+        except Program.DoesNotExist:
+            return Response({'error': 'Программа не найдена'}, status=404)
 
-        if order.status in [
-            WashOrder.Status.PAYED,
-            WashOrder.Status.PROCESSING,
-            WashOrder.Status.COMPLETED,
-        ]:
-            return Response(
-                {"error": "Невозможно оплатить заказ с текущим статусом."}, status=400
-            )
+        reset_queue_if_needed()
+
+        queue_number = None
+        queue_position = None
+
+        transaction_id = str(uuid.uuid4())
+
+        order = WashOrder.objects.create(
+            program=program,
+            program_price=program.price,
+            transaction_id=transaction_id,
+            status=WashOrder.Status.CREATED,
+            ucn=ucn,
+            queue_number=queue_number,
+            queue_position=queue_position
+        )
+        OrderWebSocketService.send_order_created(order)
+
+        print(f"[LOG] Новый заказ создан: ID={order.transaction_id}, Очередь={queue_number}, Позиция={queue_position}")
 
         order.status = WashOrder.Status.WAITING_PAYMENT
         order.payment_type = payment_type
         if ucn:
             order.ucn = ucn
         order.save()
+        OrderWebSocketService.send_order_status_update(order)
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
 
         if payment_type == "cash":
@@ -221,6 +238,7 @@ class WashOrderPaymentView(APIView):
 
         queue_number_to_return = order.queue_number
         order.save()
+        OrderWebSocketService.send_order_status_update(order)
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
 
         return Response(

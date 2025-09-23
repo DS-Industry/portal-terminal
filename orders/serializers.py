@@ -28,10 +28,10 @@ class WashOrderPaymentSerializer(serializers.Serializer):
     Сериализатор для обработки типа оплаты.
 
     Ожидает:
-        - transaction_id (str): UUID заказа
+        - "program_id": 1,
         - payment_type (str): Тип оплаты
     """
-    transaction_id = serializers.UUIDField()
+    program_id = serializers.IntegerField()
     payment_type = serializers.ChoiceField(choices=[
         ('cash', 'cash'),
         ('bank_card', 'bank_card'),

@@ -5,6 +5,7 @@ from typing import Optional
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
+from .websocket_service import OrderWebSocketService
 
 from django.apps import apps
 
@@ -42,6 +43,7 @@ def _run_wash(order_id: int):
     print(f"[WASH] Старт мойки (order={order.transaction_id})")
     order.status = WashOrder.Status.PROCESSING
     order.save()
+    OrderWebSocketService.send_order_status_update(order)
 
     # 1) Собственно мойка — 60 сек
     time.sleep(60)
@@ -51,6 +53,7 @@ def _run_wash(order_id: int):
     order.queue_position = None
     order.queue_number = None
     order.save()
+    OrderWebSocketService.send_order_status_update(order)
     print(f"[WASH] Мойка завершена (order={order.transaction_id}) -> COMPLETED")
 
     # 3) Пауза между мойками

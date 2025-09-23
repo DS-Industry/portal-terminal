@@ -15,15 +15,32 @@ services:
       timeout: 5s
       retries: 10
 
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   web:
     build: .
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     depends_on:
       db:
+        condition: service_healthy
+      redis:
         condition: service_healthy
     env_file: .env
     environment:
       DB_HOST: db
       DB_PORT: "5432"
+      REDIS_URL: "redis://redis:6379"
       DEBUG: "${DEBUG:-False}"
       WEB_CONCURRENCY: "1"
       LOG_DIR: "/app/logs"
@@ -35,3 +52,4 @@ services:
 
 volumes:
   db_data:
+  redis_data:
