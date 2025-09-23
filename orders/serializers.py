@@ -9,7 +9,7 @@ class ProgramSerializer(serializers.ModelSerializer):
     """
     class Meta:
         model = Program
-        fields = ['id', 'name', 'price', 'description', 'duration']
+        fields = ['id', 'name', 'price', 'description', 'duration', 'functions']
 
 
 class WashOrderCreateSerializer(serializers.Serializer):
