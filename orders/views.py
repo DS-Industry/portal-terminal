@@ -11,16 +11,19 @@ from rest_framework.views import APIView
 from .models import (
     Program,
     WashOrder,
-    )
+    TerminalStatus,
+    LoyaltySettings
+)
 from .serializers import (
     ProgramSerializer,
     WashOrderCreateSerializer,
     WashOrderPaymentSerializer,
+    WashOrderDetailSerializer
 )
 from .receipt_qr import send_receipt_request
 from .payments import (
     bank_card_payment,
-    cash_payment,    
+    cash_payment,
     loyalty_card_payment,
     mobile_app_payment,
 )
@@ -43,82 +46,50 @@ class ProgramListView(APIView):
     """
     Эндпоинт получения списка программ мойки.
     """
+
     def get(self, request):
         programs = Program.objects.all().order_by('id')
         serializer = ProgramSerializer(programs, many=True)
         return Response(serializer.data)
 
 
-class CreateWashOrderView(APIView):
+class LtyCheckView(APIView):
     """
-    Эндпоинт создания заказа на мойку.
-
-    Принимает JSON:
-        {
-            "program_id": 1,
-            "ucn": "123456" (необязательно)
-        }
-
-    Возвращает:
-        {
-            "id": 1,
-            "transaction_id": "...",
-            "status": "created",
-            "program_name": "...",
-            "program_price": 100.0,
-            "date": "25.07.2025 - 14:45:45"
-            "queue_number": А-3, (Может и None)
-            "queue_position": 1
-        }
+    Эндпоинт получения флага лояльности
     """
-    def post(self, request):
-        serializer = WashOrderCreateSerializer(data=request.data)
-        if not serializer.is_valid():
-            return Response(serializer.errors, status=400)
 
-        program_id = serializer.validated_data['program_id']
-        ucn = serializer.validated_data.get('ucn')
+    def get(self, request):
+        LoyaltySettings.delete_settings()
+        terminal_status = TerminalStatus.objects.get()
+        return Response({'loyalty_status': terminal_status.loyalty_status})
 
-        try:
-            program = Program.objects.get(pk=program_id)
-        except Program.DoesNotExist:
-            return Response({'error': 'Программа не найдена'}, status=404)
+class UcnCheckView(APIView):
+    """
+    Эндпоинт получения ucn данных
+    """
 
-        reset_queue_if_needed()
+    def get(self, request):
+        #LoyaltySettings.create_or_replace_settings('123', 10, 10, 10)
+        ucn_data = LoyaltySettings.get_settings()
 
-        queue_number = None
-        queue_position = None
-
-        transaction_id = str(uuid.uuid4())
-
-        order = WashOrder.objects.create(
-            program=program,
-            program_price=program.price,
-            transaction_id=transaction_id,
-            status=WashOrder.Status.CREATED,
-            ucn=ucn,
-            queue_number=queue_number,
-            queue_position=queue_position
-        )
-
-        formatted_date = (
-            timezone.localtime(
-                order.date
-                ).strftime('%d.%m.%Y - %H:%M:%S') if order.date else None
+        if not ucn_data:
+            return Response(
+                {
+                    'ucn': None,
+                    'discount': None,
+                    'cashback': None,
+                    'balance': None
+                }
             )
-        
-        print(f"[LOG] Новый заказ создан: ID={order.transaction_id}, Очередь={queue_number}, Позиция={queue_position}")
 
-        return Response({
-            "id": order.id,
-            "transaction_id": transaction_id,
-            "status": order.status,
-            "program_name": program.name,
-            "program_price": float(program.price),
-            "date": formatted_date,
-            "queue_number": queue_number,
-            "queue_position": queue_position
-        }, status=201)
+        return Response(
+            {
+                'ucn': ucn_data.ucn,
+                'discount': ucn_data.discount,
+                'cashback': ucn_data.cashback,
+                'balance': ucn_data.balance
+            }
+        )
 
 
 class WashOrderPaymentView(APIView):
@@ -132,6 +103,7 @@ class WashOrderPaymentView(APIView):
             "ucn": "1234567890"  # опционально, только для loyalty_card
         }
     """
+
     def post(self, request):
 
         serializer = WashOrderPaymentSerializer(data=request.data)
@@ -163,7 +135,7 @@ class WashOrderPaymentView(APIView):
             queue_number=queue_number,
             queue_position=queue_position
         )
-        OrderWebSocketService.send_order_created(order)
+        OrderWebSocketService.send_order_status_update(order)
 
         print(f"[LOG] Новый заказ создан: ID={order.transaction_id}, Очередь={queue_number}, Позиция={queue_position}")
 
@@ -211,6 +183,7 @@ class WashOrderPaymentView(APIView):
             return Response({"error": "Неверный тип оплаты"}, status=400)
 
         order.status = WashOrder.Status.PAYED
+        order.amount_sum = int(order.program_price)
 
         if payment_type in ("cash", "bank_card"):
             qr_code = send_receipt_request(order)
@@ -248,3 +221,67 @@ class WashOrderPaymentView(APIView):
             },
             status=200,
         )
+
+
+class WashOrderCancellationView(APIView):
+    def post(self, request):
+
+        order_id = request.GET.get('order_id')
+
+        if not order_id:
+            return Response(
+                {'error': 'Параметр order_id обязателен'},
+                status=400
+            )
+
+        try:
+            order = WashOrder.objects.get(pk=order_id)
+        except WashOrder.DoesNotExist:
+            return Response({'error': 'Заказ не найден'}, status=400)
+
+        allowed_statuses = [WashOrder.Status.CREATED, WashOrder.Status.WAITING_PAYMENT]
+
+        if order.status not in allowed_statuses:
+            return Response(
+                {
+                    'error': f'Невозможно отменить заказ со статусом "{order.get_status_display()}"'
+                },
+                status=400
+            )
+
+        order.status = WashOrder.Status.FAILED
+        order.save(update_fields=["status"])
+        print(f"[LOG] Заказ отменен {order.id}.")
+
+        return Response(
+            {
+                "message": "Заказ отменен."
+            },
+            status=200,
+        )
+
+
+class WashOrderDetailView(APIView):
+    """
+    Получение информации о заказе
+    """
+
+    def get(self, request):
+        order_id = request.GET.get('order_id')
+
+        if not order_id:
+            return Response(
+                {'error': 'Параметр order_id обязателен'},
+                status=400
+            )
+
+        try:
+            order = WashOrder.objects.get(pk=order_id)
+        except WashOrder.DoesNotExist:
+            return Response(
+                {'error': 'Заказ не найден'},
+                status=404
+            )
+
+        serializer = WashOrderDetailSerializer(order)
+        return Response(serializer.data, status=200)

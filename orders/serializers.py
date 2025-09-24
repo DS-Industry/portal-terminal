@@ -1,15 +1,16 @@
 from rest_framework import serializers
 
-from .models import Program
+from .models import Program, WashOrder
 
 
 class ProgramSerializer(serializers.ModelSerializer):
     """
     Сериализатор для модели Program.
     """
+
     class Meta:
         model = Program
-        fields = ['id', 'name', 'price', 'description', 'duration', 'functions']
+        fields = ['id', 'name', 'price', 'lty_price', 'description', 'duration', 'functions', 'promo_value']
 
 
 class WashOrderCreateSerializer(serializers.Serializer):
@@ -39,3 +40,23 @@ class WashOrderPaymentSerializer(serializers.Serializer):
         ('loyalty_card', 'loyalty_card'),
     ])
     ucn = serializers.CharField(required=False, allow_blank=True)
+
+
+class WashOrderDetailSerializer(serializers.ModelSerializer):
+    program_name = serializers.CharField(source='program.name', read_only=True)
+
+    class Meta:
+        model = WashOrder
+        fields = [
+            'id',
+            'transaction_id',
+            'payment_type',
+            'program_name',
+            'program_price',
+            'amount_sum',
+            'ucn',
+            'queue_position',
+            'queue_number',
+            'status',
+            'qr_code'
+        ]

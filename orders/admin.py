@@ -24,9 +24,9 @@ class ProgramAdmin(admin.ModelAdmin):
     """Настройка отображения таблицы программ мойки в админке.
     Показываем ID, название, цену, описание, время выполнения, id_service и функции.
     """
-    list_display = ('id', 'name', 'price', 'description', 'duration', 'id_service', 'functions')
+    list_display = ('id', 'name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions')
     ordering = ('id',)
-    fields = ('name', 'price', 'description', 'duration', 'id_service', 'functions')
+    fields = ('name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions')
 
 
 @admin.register(WashOrder)
@@ -44,7 +44,7 @@ class WashOrderAdmin(admin.ModelAdmin):
     formatted_date.admin_order_field = 'date'
 
     list_display = (
-        'id', 'program', 'program_price', 'formatted_date', 'status',
+        'id', 'program', 'program_price', 'amount_sum', 'formatted_date', 'status',
         'payment_type', 'queue_number', 'queue_position',
         'transaction_id', 'ucn', 'qr_code',
     )
@@ -52,24 +52,24 @@ class WashOrderAdmin(admin.ModelAdmin):
     list_filter = ('status', 'program', 'payment_type', 'is_mobile_payment')
     search_fields = ('transaction_id', 'queue_number', 'ucn')
 
-
 @admin.register(TerminalStatus)
 class TerminalStatusAdmin(SingletonAdmin):
     """Настройка отображения состояния терминалов в админке.
     Показываем ID, identifier, имя, номер бокса, car_wash_identifier и все технические поля.
     """
     list_display = (
-        'id', 'identifier', 'car_wash_identifier', 'name', 'bay_number',
+        'id', 'identifier', 'car_wash_identifier', 'name', 'loyalty_status', 'bay_number',
         'gvl_cardnum', 'gvl_cardsum', 'gvl_sum',
         'gvl_err', 'gvl_time', 'gvl_source',
         'mobile_app_qr_code',
     )
     fields = (
-        'identifier', 'name', 'bay_number', 'car_wash_identifier',
+        'identifier', 'name', 'loyalty_status', 'bay_number', 'car_wash_identifier',
         'gvl_cardnum', 'gvl_cardsum', 'gvl_sum',
         'gvl_err', 'gvl_time', 'gvl_source',
         'mobile_app_qr_code',
     )
+    list_editable = ('identifier', 'car_wash_identifier', 'name', 'loyalty_status', 'bay_number', 'mobile_app_qr_code')
 
 
 @admin.register(WashSettings)
