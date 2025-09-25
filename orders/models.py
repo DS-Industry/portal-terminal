@@ -350,7 +350,11 @@ class ManageServerConfig(models.Model):
     type = models.CharField(
         max_length=50,
         default="CW",
-        help_text="Тип сервера (например CW, TEST, BACKUP)"
+        help_text="Тип сервера (например CW, ONVI)"
+    )
+    loyalty_status = models.BooleanField(
+        default=False,
+        help_text="Система лояльности для работы с картой",
     )
 
     def __str__(self):

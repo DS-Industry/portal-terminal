@@ -89,5 +89,6 @@ class VendotekServerConfigAdmin(SingletonAdmin):
 
 @admin.register(ManageServerConfig)
 class ManageServerConfigAdmin(admin.ModelAdmin):
-    list_display = ('id', 'ip_address', 'port', 'type',)
-    fields = ('ip_address', 'port', 'type',)
+    list_display = ('id', 'ip_address', 'port', 'type', 'loyalty_status')
+    fields = ('ip_address', 'port', 'type', 'loyalty_status')
+    list_editable = ('ip_address', 'port', 'type', 'loyalty_status')
