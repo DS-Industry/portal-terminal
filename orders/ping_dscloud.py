@@ -5,6 +5,7 @@ import requests
 from django.apps import apps
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils import timezone
 
 from pathlib import Path
 
@@ -13,6 +14,8 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from .start_carwash import start_car_wash
 from .websocket_service import OrderWebSocketService
+
+from .encoder import EncodedParams
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -213,6 +216,46 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
                 ts.gvl_cardsum = 0
                 ts.save()
             return True
+        
+        # отправляем событие по gvl_source
+        try:
+            def _map_source_to_oper(src) -> int | None:
+                """
+                Нормализует src в int (если строка/число) и маппит на oper.
+                Возвращает None, если источник неизвестен.
+                """
+                try:
+                    src_int = int(str(src).strip())
+                except Exception:
+                    return None
+                return {
+                    241133: 25,   # Yandex
+                    318: 30,      # Moy-Ka!DS(старая лояльность)
+                    758567: 37,   # Lukoil
+                    151422: 39,   # Onvi
+                }.get(src_int)
+
+            oper = _map_source_to_oper(gvl_source)
+            if not oper:
+                print(f"[ENCODER_MANAGE] Unknown gvl_source={gvl_source!r}, skip sending.")
+            else:
+                device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
+                now_dt = timezone.now()
+                params = EncodedParams(
+                    oper=oper,
+                    status=1,
+                    data=int(gvl_cardsum),
+                    counter=0,
+                    localId=0,
+                    begDate=now_dt,
+                    endDate=now_dt,
+                    deviceId=device_id
+                )
+                results = params.send_hex_to_server()
+                print(f"[ENCODER_MANAGE] Loyalty/mobile event sent (gvl_source={gvl_source}, oper={oper}): {results}")
+        except Exception as e:
+            print(f"[ENCODER_MANAGE] Error sending loyalty/mobile event: {e}")
+
         import uuid as _uuid
         new_order = WashOrder.objects.create(
             program=program,
