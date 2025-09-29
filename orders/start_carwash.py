@@ -8,6 +8,9 @@ from apscheduler.triggers.date import DateTrigger
 from .websocket_service import OrderWebSocketService
 
 from django.apps import apps
+from django.utils import timezone
+
+from .encoder import EncodedParams
 
 
 _scheduler: Optional[BackgroundScheduler] = None
@@ -47,7 +50,8 @@ def _run_wash(order_id: int):
 
     # 1) Собственно мойка — 60 сек
     time.sleep(60)
-
+    
+    start_dt = timezone.now()
     # 2) Завершаем заказ
     order.status = WashOrder.Status.COMPLETED
     order.queue_position = None
@@ -56,6 +60,28 @@ def _run_wash(order_id: int):
     OrderWebSocketService.send_order_status_update(order)
     print(f"[WASH] Мойка завершена (order={order.transaction_id}) -> COMPLETED")
 
+    # отправляем событие "Программа (в конце мойки)"
+    try:
+        TerminalStatus = apps.get_model('orders', 'TerminalStatus')
+        ts = TerminalStatus.objects.first()
+        device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
+
+        end_dt = timezone.now()
+        params = EncodedParams(
+            oper=3,
+            status=1,
+            data=0,
+            counter=0,
+            localId=0,
+            begDate=start_dt,
+            endDate=end_dt,
+            deviceId=device_id
+        )
+        results = params.send_hex_to_server()
+        print(f"[ENCODER_MANAGE] Program finished sent (oper=3): {results}")
+    except Exception as e:
+        print(f"[ENCODER_MANAGE] Error sending program-finished event: {e}")
+        
     # 3) Пауза между мойками
     try:
         ws = WashSettings.objects.first()

@@ -9,6 +9,8 @@ from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .encoder import EncodedParams
+
 from .models import (
     Program,
     WashOrder,
@@ -192,6 +194,27 @@ class WashOrderPaymentView(APIView):
                 )
             print(f"[VENDOTEK] Оплата успешно завершена для заказа {order.transaction_id}")
 
+            #отправляем событие "Безнал" 
+            try:
+                ts = TerminalStatus.objects.first()
+                device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
+                now_dt = timezone.now()
+
+                params = EncodedParams(
+                    oper=23,
+                    status=1,
+                    data=int(order.program_price),
+                    counter=0,
+                    localId=0,
+                    begDate=now_dt,
+                    endDate=now_dt,
+                    deviceId=device_id
+                )
+                results = params.send_hex_to_server()
+                print(f"[ENCODER_MANAGE] Bank card payment sent (oper=23): {results}")
+            except Exception as e:
+                print(f"[ENCODER_MANAGE] Error sending bank-card payment event: {e}")
+                
         elif payment_type == "mobile_app":
             return mobile_app_payment(order)
 
