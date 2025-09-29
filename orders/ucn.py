@@ -46,6 +46,8 @@ class LoyaltyManager:
                 'cashback': None
             }
 
+        print(f"[LOYALTY] Тип сервера: {server.type}")
+
         # Логика в зависимости от типа сервера
         if server.type == "CW":
             return cls._get_balance_cw(server, ucn_number)
@@ -66,7 +68,7 @@ class LoyaltyManager:
 
             dev_id = terminal.identifier
 
-            url = f"http://{server.ip_address}:{server.port}/cwash/api/service/card_oper"
+            url = f"http://{server.ip_address}:{server.port}/cwash/api/service/card_balance"
             headers = {
                 "dev_id": str(dev_id),
                 "ucn": str(ucn_number),
@@ -197,6 +199,7 @@ class LoyaltyManager:
         """
         Получает баланс с сервера и обновляет локальные настройки
         """
+        print(f"[LOYALTY] Поиск карты в системе лояльности: {ucn_number}")
         result = cls.get_balance(ucn_number)
 
         if result['success']:

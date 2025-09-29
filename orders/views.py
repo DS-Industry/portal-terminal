@@ -1,4 +1,5 @@
 import uuid
+import time
 
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -32,6 +33,9 @@ from .queue_option import (
     is_car_wash_busy,
     reset_queue_if_needed,
 )
+from .ucn import (
+    LoyaltyManager
+)
 
 
 class ProgramViewSet(viewsets.ModelViewSet):
@@ -63,13 +67,13 @@ class LtyCheckView(APIView):
         terminal_status = TerminalStatus.objects.get()
         return Response({'loyalty_status': terminal_status.loyalty_status})
 
+
 class UcnCheckView(APIView):
     """
     Эндпоинт получения ucn данных
     """
 
     def get(self, request):
-        #LoyaltySettings.create_or_replace_settings('123', 10, 10, 10)
         ucn_data = LoyaltySettings.get_settings()
 
         if not ucn_data:
@@ -90,6 +94,24 @@ class UcnCheckView(APIView):
                 'balance': ucn_data.balance
             }
         )
+
+
+class MobileQrView(APIView):
+    """
+    Эндпоинт получения QR для МП
+    """
+
+    def get(self, request):
+        terminal_status = TerminalStatus.objects.first()
+        if not terminal_status or not terminal_status.mobile_app_qr_code:
+            error_msg = "QR-код для старого мобильного приложения не настроен в TerminalStatus."
+            print(f"[MOBILE-PAYMENT-QR] ОШИБКА: {error_msg}")
+            return Response({'error': error_msg}, status=500)
+
+        qr_code_string = terminal_status.mobile_app_qr_code
+        return Response({
+            'qr_code': qr_code_string
+        }, status=200)
 
 
 class WashOrderPaymentView(APIView):
@@ -147,8 +169,15 @@ class WashOrderPaymentView(APIView):
         OrderWebSocketService.send_order_status_update(order)
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
 
+        order.refresh_from_db()
+        if order.status == WashOrder.Status.FAILED:
+            return Response(
+                {"error": "Заказ был отменен до начала оплаты"},
+                status=400
+            )
+
         if payment_type == "cash":
-            cash_payment()
+            cash_payment(order)
 
         elif payment_type == "bank_card":
             print(f"[VENDOTEK] Начало обработки оплаты по банковской карте для заказа {order.transaction_id}")
@@ -181,6 +210,13 @@ class WashOrderPaymentView(APIView):
 
         else:
             return Response({"error": "Неверный тип оплаты"}, status=400)
+
+        order.refresh_from_db()
+        if order.status == WashOrder.Status.FAILED:
+            return Response(
+                {"error": "Заказ был отменен во время обработки платежа"},
+                status=400
+            )
 
         order.status = WashOrder.Status.PAYED
         order.amount_sum = int(order.program_price)
@@ -224,15 +260,7 @@ class WashOrderPaymentView(APIView):
 
 
 class WashOrderCancellationView(APIView):
-    def post(self, request):
-
-        order_id = request.GET.get('order_id')
-
-        if not order_id:
-            return Response(
-                {'error': 'Параметр order_id обязателен'},
-                status=400
-            )
+    def post(self, request, order_id):
 
         try:
             order = WashOrder.objects.get(pk=order_id)
@@ -266,14 +294,7 @@ class WashOrderDetailView(APIView):
     Получение информации о заказе
     """
 
-    def get(self, request):
-        order_id = request.GET.get('order_id')
-
-        if not order_id:
-            return Response(
-                {'error': 'Параметр order_id обязателен'},
-                status=400
-            )
+    def get(self, request, order_id):
 
         try:
             order = WashOrder.objects.get(pk=order_id)
@@ -285,3 +306,20 @@ class WashOrderDetailView(APIView):
 
         serializer = WashOrderDetailSerializer(order)
         return Response(serializer.data, status=200)
+
+
+class OpenReaderView(APIView):
+    def post(self, request):
+        time.sleep(5)
+        result = LoyaltyManager.get_balance_and_update('794976664919')
+
+        return Response(
+            {
+                "message": "Чтение карты завершено",
+                "success": result.get('success', False),
+                "balance": result.get('balance'),
+                "discount": result.get('discount'),
+                "cashback": result.get('cashback')
+            },
+            status=200
+        )

@@ -53,12 +53,24 @@ def bank_card_payment(order):
         client.disconnect()
 
 
-def cash_payment():
+def cash_payment(order):
     """
     Симуляция оплаты наличными.
     """
     print("[LOG] Выбран тип оплаты: cash")
-    time.sleep(5)
+    #time.sleep(15)
+    time.sleep(3)
+    order.amount_sum = 100
+    order.save()
+    time.sleep(3)
+    order.amount_sum = 200
+    order.save()
+    time.sleep(3)
+    order.amount_sum = 300
+    order.save()
+    time.sleep(3)
+    order.amount_sum = 400
+    order.save()
     print("[LOG] Оплата наличными прошла успешно.")
 
 
@@ -130,6 +142,5 @@ def mobile_app_payment(order):
     print(f"[MOBILE-PAYMENT-QR] Статус заказа {order.transaction_id} обновлён на MOBILE_QR_REQUEST. QR-код получен.")
 
     return Response({
-        'message': 'Запрос на переход в старое мобильное приложение принят.',
         'qr_code': qr_code_string
     }, status=200)
