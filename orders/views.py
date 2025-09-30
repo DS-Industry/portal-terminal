@@ -179,7 +179,17 @@ class WashOrderPaymentView(APIView):
             )
 
         if payment_type == "cash":
-            cash_payment(order)
+            print(f"[CASH_PAYMENT] Начало обработки оплаты по наличке для заказа {order.transaction_id}")
+            success, error_message = cash_payment(order)
+            if not success:
+                order.status = WashOrder.Status.FAILED
+                order.save(update_fields=["status"])
+                print(f"[CASH_PAYMENT] Оплата не удалась для заказа {order.transaction_id}. Статус изменен на FAILED.")
+                return Response(
+                    {"error": f"Ошибка оплаты по наличке: {error_message}"},
+                    status=400,
+                )
+            print(f"[CASH_PAYMENT] Оплата успешно завершена для заказа {order.transaction_id}")
 
         elif payment_type == "bank_card":
             print(f"[VENDOTEK] Начало обработки оплаты по банковской карте для заказа {order.transaction_id}")

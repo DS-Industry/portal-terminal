@@ -86,13 +86,23 @@ REGISTERS = {
     'LoyaltyPrice5': {
         'address': 171,
         'description': 'Цена по лояльности Программы 5'
+    },
+
+    #Купюрник
+    'Cash': {
+        'address': 16388,
+        'description': 'Наличное внесение'
     }
 }
 
 # Настройки по умолчанию
-DEFAULT_HOST = '192.168.53.120'
-DEFAULT_PORT = 502
-DEFAULT_TIMEOUT = 10
+DEFAULT_HOST_PLC = '192.168.53.120'
+DEFAULT_PORT_PLC = 502
+DEFAULT_TIMEOUT_PLC = 10
+
+DEFAULT_HOST_BILL_HOLDER = '192.168.53.130'
+DEFAULT_PORT_BILL_HOLDER = 502
+DEFAULT_TIMEOUT_BILL_HOLDER = 10
 
 # Настройки опроса
 POLLING_INTERVALS = {

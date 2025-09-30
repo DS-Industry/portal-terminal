@@ -12,6 +12,7 @@ from .models import (
 )
 
 from .vendotek import VendotekClient
+from .bill_holder_service import payment_process
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env_file = BASE_DIR / ".env"
@@ -57,21 +58,12 @@ def cash_payment(order):
     """
     Симуляция оплаты наличными.
     """
-    print("[LOG] Выбран тип оплаты: cash")
-    #time.sleep(15)
-    time.sleep(3)
-    order.amount_sum = 100
-    order.save()
-    time.sleep(3)
-    order.amount_sum = 200
-    order.save()
-    time.sleep(3)
-    order.amount_sum = 300
-    order.save()
-    time.sleep(3)
-    order.amount_sum = 400
-    order.save()
-    print("[LOG] Оплата наличными прошла успешно.")
+    success = payment_process(order)
+    if not success:
+        print(f"[CASH_PAYMENT] Ошибка наличной оплаты")
+        return False, "[CASH_PAYMENT] Ошибка наличной оплаты"
+
+    return True, ""
 
 
 def loyalty_card_payment(order, ucn):

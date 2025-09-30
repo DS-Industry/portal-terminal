@@ -10,15 +10,16 @@ from .modbus_client import ModbusClient
 from .models import Program
 
 logger = logging.getLogger(__name__)
+from modbus_config import DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC
 
 
 class PLCService:
     """Simple PLC service for program synchronization"""
-    
-    def __init__(self, host: str = None, port: int = None, timeout: int = None):
+
+    def __init__(self, host: str, port: int, timeout: int):
         self.client = ModbusClient(host, port, timeout)
         self.connected = False
-    
+
     def connect(self) -> bool:
         """Connect to PLC"""
         self.connected = self.client.connect()
@@ -27,33 +28,33 @@ class PLCService:
         else:
             logger.error("Failed to connect to PLC")
         return self.connected
-    
+
     def disconnect(self):
         """Disconnect from PLC"""
         if self.connected:
             self.client.disconnect()
             self.connected = False
             logger.info("Disconnected from PLC")
-    
+
     def sync_programs(self) -> Dict:
         """Sync all programs from PLC to database"""
         if not self.connected:
             logger.error("PLC not connected")
             return {'success': False, 'error': 'PLC not connected'}
-        
+
         try:
             logger.info("Starting program sync from PLC")
-            
+
             # Get all programs from PLC
             programs_data = self.client.read_all_programs()
-            
+
             if not programs_data:
                 logger.warning("No programs received from PLC")
                 return {'success': False, 'error': 'No programs received from PLC'}
-            
+
             # Get all prices from PLC
             prices_data = self.client.read_all_prices()
-            
+
             results = {
                 'success': True,
                 'total_programs': len(programs_data),
@@ -61,7 +62,7 @@ class PLCService:
                 'updated': 0,
                 'errors': 0
             }
-            
+
             # Process each program
             for program_name, program_data in programs_data.items():
                 try:
@@ -69,7 +70,7 @@ class PLCService:
                     program_number = int(program_name.replace('Program', ''))
                     price_data = prices_data.get(program_name, {})
                     regular_price = price_data.get('regular_price', 0)
-                    
+
                     result = self._sync_program(program_data, regular_price)
                     if result['status'] == 'created':
                         results['created'] += 1
@@ -77,29 +78,30 @@ class PLCService:
                         results['updated'] += 1
                     else:
                         results['errors'] += 1
-                        
+
                 except Exception as e:
                     logger.error(f"Error syncing program {program_name}: {e}")
                     results['errors'] += 1
-            
-            logger.info(f"Sync completed: created={results['created']}, updated={results['updated']}, errors={results['errors']}")
+
+            logger.info(
+                f"Sync completed: created={results['created']}, updated={results['updated']}, errors={results['errors']}")
             return results
-            
+
         except Exception as e:
             logger.error(f"Critical sync error: {e}")
             return {'success': False, 'error': str(e)}
-    
+
     def _sync_program(self, program_data: Dict, price: float = 0) -> Dict:
         """Sync single program to database"""
         program_number = int(program_data['program_name'].replace('Program', ''))
         program_name = f"Program {program_number}"
-        
+
         try:
             with transaction.atomic():
                 # Extract function names from steps (functions is array of objects)
                 functions_list = self._extract_functions(program_data['functions'])
                 functions_string = ', '.join(functions_list) if functions_list else ''
-                
+
                 # Create or update program
                 program, created = Program.objects.get_or_create(
                     id_service=program_number,
@@ -111,7 +113,7 @@ class PLCService:
                         'functions': functions_string
                     }
                 )
-                
+
                 if created:
                     logger.info(f"Created new program: {program_name} (price: {price})")
                     status = 'created'
@@ -122,7 +124,7 @@ class PLCService:
                     program.save()
                     logger.info(f"Updated program: {program_name} (price: {price})")
                     status = 'updated'
-                
+
                 return {
                     'program_name': program_name,
                     'program_number': program_number,
@@ -130,7 +132,7 @@ class PLCService:
                     'price': price,
                     'functions': functions_list
                 }
-                
+
         except Exception as e:
             logger.error(f"Error saving program {program_name}: {e}")
             return {
@@ -139,7 +141,7 @@ class PLCService:
                 'status': 'error',
                 'error': str(e)
             }
-    
+
     def _extract_functions(self, functions: List[Dict]) -> List[str]:
         """Extract functions from program steps (preserving order and duplicates)"""
         functions_list = []
@@ -148,18 +150,18 @@ class PLCService:
                 function_name = func['function']
                 functions_list.append(function_name)
         return functions_list
-    
+
     def get_program_by_number(self, program_number: int) -> Optional[Program]:
         """Get program by number"""
         try:
             return Program.objects.get(id_service=program_number)
         except Program.DoesNotExist:
             return None
-    
+
     def get_all_programs(self) -> List[Program]:
         """Get all programs from database"""
         return Program.objects.all().order_by('id_service')
-    
+
     def get_status(self) -> Dict:
         """Get PLC connection status"""
         return {
@@ -171,11 +173,11 @@ class PLCService:
 
 def sync_programs_from_plc() -> Dict:
     """Sync programs from PLC to database"""
-    service = PLCService()
-    
+    service = PLCService(DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC)
+
     if not service.connect():
         return {'success': False, 'error': 'Failed to connect to PLC'}
-    
+
     try:
         return service.sync_programs()
     finally:
@@ -187,4 +189,3 @@ if __name__ == "__main__":
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
