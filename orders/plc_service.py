@@ -169,6 +169,25 @@ class PLCService:
             'host': self.client.host,
             'port': self.client.port
         }
+    
+    def start_program(self, program_number: int) -> bool:
+        try:
+            program = self.get_program_by_number(program_number)
+            if program is None:
+                logger.error(f"Program with id_service={program_number} not found")
+                return False
+
+            address = program.plc_start_write_address
+            if address is None:
+                logger.error(
+                    f"Program {program_number} has invalid plc_start_write_address: {address}"
+                )
+                return False
+
+            return self.client.write_coil(address, True)
+        except Exception as e:
+            logger.error(f"Error starting program {program_number}: {e}")
+            return False
 
 
 def sync_programs_from_plc() -> Dict:

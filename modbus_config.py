@@ -87,7 +87,21 @@ REGISTERS = {
         'address': 171,
         'description': 'Цена по лояльности Программы 5'
     },
-
+    'StartProgram1': {
+        'address': 0,
+    },
+    'StartProgram2': {
+        'address': 1,
+    },
+    'StartProgram3': {
+        'address': 3,
+    },
+    'StartProgram4': {
+        'address': 4,
+    },
+    'StartProgram5': {
+        'address': 5,
+    },
     #Купюрник
     'Cash': {
         'address': 16388,

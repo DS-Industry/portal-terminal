@@ -92,6 +92,24 @@ class ModbusClient:
             logger.error(f"Error writing to register {address}: {e}")
             return False
 
+    def write_coil(self, address: int, value: bool | int, unit_id: int = 1) -> bool:
+        if not self.connected:
+            logger.error("Not connected to PLC")
+            return False
+
+        try:
+            result = self.client.write_coil(address, bool(value), unit=unit_id)
+            if result.isError():
+                logger.error(f"Error writing value {value} to coil {address}")
+                return False
+
+            logger.info(f"Successfully wrote value {value} to coil {address}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error writing to coil {address}: {e}")
+            return False
+
     def read_registers(self, start_address: int, count: int) -> Optional[List[int]]:
         """Read multiple registers"""
         if not self.connected:

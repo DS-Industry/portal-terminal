@@ -11,6 +11,8 @@ from django.apps import apps
 from django.utils import timezone
 
 from .encoder import EncodedParams
+from .plc_service import PLCService
+from modbus_config import DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC
 
 
 _scheduler: Optional[BackgroundScheduler] = None
@@ -48,8 +50,33 @@ def _run_wash(order_id: int):
     order.save()
     OrderWebSocketService.send_order_status_update(order)
 
+
+    # Пытаемся запустить программу на PLC по адресу из БД
+    try:
+        service = PLCService(DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC)
+        if service.connect():
+            started = service.start_program(order.program.id)
+            if not started:
+                print(f"[WASH] Не удалось стартовать программу id_service={order.program.id_service} на PLC")
+        else:
+            print("[WASH] Не удалось подключиться к PLC для запуска программы")
+    except Exception as e:
+        print(f"[WASH] Ошибка при запуске программы на PLC: {e}")
+    finally:
+        try:
+            service.disconnect()
+        except Exception:
+            pass
+
     # 1) Собственно мойка — 60 сек
-    time.sleep(60)
+
+    while True:
+        status = service.get_wash_status()
+        if status == 3:
+            break
+        time.sleep(1)
+
+    
     
     start_dt = timezone.now()
     # 2) Завершаем заказ

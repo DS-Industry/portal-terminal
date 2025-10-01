@@ -56,6 +56,11 @@ class Program(models.Model):
         null=True,
         help_text="Функции программы (через запятую)",
     )
+    
+    plc_start_write_address = models.PositiveIntegerField(
+        default=0,
+        help_text="Адрес для старта программы в PLC",
+    )
 
     def get_functions_list(self):
         """Возвращает список функций из строки с разделителями"""
