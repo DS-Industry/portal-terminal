@@ -10,7 +10,7 @@ from .modbus_client import ModbusClient
 from .models import Program
 
 logger = logging.getLogger(__name__)
-from modbus_config import DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC
+from modbus_config import DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC, WASH_STATUS_REGISTER
 
 
 class PLCService:
@@ -154,7 +154,7 @@ class PLCService:
     def get_program_by_number(self, program_number: int) -> Optional[Program]:
         """Get program by number"""
         try:
-            return Program.objects.get(id_service=program_number)
+            return Program.objects.get(id=program_number)
         except Program.DoesNotExist:
             return None
 
@@ -174,7 +174,7 @@ class PLCService:
         try:
             program = self.get_program_by_number(program_number)
             if program is None:
-                logger.error(f"Program with id_service={program_number} not found")
+                logger.error(f"Program with id={program_number} not found")
                 return False
 
             address = program.plc_start_write_address
@@ -188,6 +188,32 @@ class PLCService:
         except Exception as e:
             logger.error(f"Error starting program {program_number}: {e}")
             return False
+
+    def get_wash_status(self) -> Optional[bool]:
+        """
+
+        Returns:
+            bool: True - мойка идет, False - мойка завершена
+            None: ошибка чтения
+        """
+        if not self.connected:
+            logger.error("Not connected to PLC")
+            return None
+
+        try:
+            status_value = self.client.read_coil(WASH_STATUS_REGISTER)
+            print(f"[WASH] WASH_STATUS_REGISTER={WASH_STATUS_REGISTER} на {status_value}")
+
+            if status_value is None:
+                logger.error(f"Failed to read wash status from register {WASH_STATUS_REGISTER}")
+                return None
+
+            wash_in_progress = bool(status_value)
+            return wash_in_progress
+
+        except Exception as e:
+            logger.error(f"Error reading wash status: {e}")
+            return None
 
 
 def sync_programs_from_plc() -> Dict:

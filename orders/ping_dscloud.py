@@ -270,7 +270,7 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
         if ts:
             ts.gvl_cardsum = 0
             ts.save()
-        OrderWebSocketService.send_order_created(new_order)
+        OrderWebSocketService.send_order_status_update(new_order)
         print(f"[DS-MOBILE] Немедленный запуск мойки для заказа {new_order.transaction_id}")
         start_car_wash(new_order)
         return True  # в этот тик ничего больше не делаем
@@ -344,13 +344,13 @@ def dscloud_job():
         if _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, max_retries):
             return
 
-        payed_no_queue = WashOrder.objects.filter(
-            status=WashOrder.Status.PAYED,
-            queue_position=None
-        ).order_by("id").first()
-        if payed_no_queue:
-            _start_payed_without_queue(payed_no_queue, TerminalStatus, max_retries)
-            return
+        #payed_no_queue = WashOrder.objects.filter(
+        #    status=WashOrder.Status.PAYED,
+        #    queue_position=None
+        #).order_by("id").first()
+        #if payed_no_queue:
+        #    _start_payed_without_queue(payed_no_queue, TerminalStatus, max_retries)
+        #    return
 
         if _gvl_sent_for and not processing_order:
             print(f"[DS-HANDOVER] Заказ {_gvl_sent_for} завершён. Обрабатываем переход.")

@@ -50,8 +50,7 @@ def _run_wash(order_id: int):
     order.save()
     OrderWebSocketService.send_order_status_update(order)
 
-
-    # Пытаемся запустить программу на PLC по адресу из БД
+    service = None
     try:
         service = PLCService(DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC)
         if service.connect():
@@ -60,22 +59,33 @@ def _run_wash(order_id: int):
                 print(f"[WASH] Не удалось стартовать программу id_service={order.program.id_service} на PLC")
         else:
             print("[WASH] Не удалось подключиться к PLC для запуска программы")
+
+        # Ожидание завершения мойки
+        if started:
+            print(f"[WASH] Ожидание завершения мойки...")
+            time.sleep(15)
+            while True:
+                time.sleep(3)
+
+                # Получаем статус мойки
+                wash_status = service.get_wash_status()
+
+                if wash_status is None:
+                    print(f"[WASH] Ошибка чтения статуса мойки, продолжаем ожидание...")
+                    continue
+
+                if not wash_status:  # False - мойка завершена
+                    print(f"[WASH] Мойка завершена по статусу PLC")
+                    break
+
     except Exception as e:
-        print(f"[WASH] Ошибка при запуске программы на PLC: {e}")
+        print(f"[WASH] Ошибка при работе с PLC: {e}")
     finally:
-        try:
-            service.disconnect()
-        except Exception:
-            pass
-
-    # 1) Собственно мойка — 60 сек
-
-    while True:
-        status = service.get_wash_status()
-        if status == 3:
-            break
-        time.sleep(1)
-
+        if service:
+            try:
+                service.disconnect()
+            except Exception:
+                pass
     
     
     start_dt = timezone.now()
@@ -97,7 +107,7 @@ def _run_wash(order_id: int):
         params = EncodedParams(
             oper=3,
             status=1,
-            data=0,
+            data=119,
             counter=0,
             localId=0,
             begDate=start_dt,

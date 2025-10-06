@@ -36,14 +36,9 @@ class OrderStatusConsumer(AsyncWebsocketConsumer):
             'timestamp': event['timestamp']
         }))
 
-    async def order_created(self, event):
+    async def order_error(self, event):
         """Обработка создания нового заказа"""
         await self.send(text_data=json.dumps({
-            'type': 'order_created',
-            'order_id': event['order_id'],
-            'status': event['status'],
-            'transaction_id': event['transaction_id'],
-            'program_name': event['program_name'],
-            'program_price': event['program_price'],
-            'timestamp': event['timestamp']
+            'type': 'error',
+            'code': event['code']
         }))

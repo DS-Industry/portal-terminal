@@ -19,6 +19,7 @@ class BillHolderService:
         self.client = ModbusClient(host, port, timeout)
         self.connected = False
         self.cash_register_address = 16388
+        self.ask_register_address = 16391
 
     def connect(self) -> bool:
         """Connect to PLC"""
@@ -70,6 +71,7 @@ class BillHolderService:
             return False
 
         logger.info(f"BillHolder: начало приема оплаты для заказа {order.id}. Сумма к оплате: {order.program_price}")
+        print(f"[BILL-HOLDER] начало приема оплаты для заказа {order.id}. Сумма к оплате: {order.program_price}")
 
         try:
             while True:
@@ -77,12 +79,41 @@ class BillHolderService:
                 cash_nominal = self.read_cash_amount()
 
                 if cash_nominal is not None and cash_nominal > 0:
+
+                    ack_success = self.client.write_register(self.ask_register_address, 1)
+
+                    if not ack_success:
+                        logger.error("BillHolder: ошибка подтверждения чтения купюры")
+                        print(f"[BILL-HOLDER] ошибка подтверждения чтения купюры")
+
+                    while True:
+                        time.sleep(0.1)
+
+                        current_cash = self.read_cash_amount()
+                        if current_cash == 0:
+                            logger.info("BillHolder: оборудование обнулило сумму")
+                            print(f"[BILL-HOLDER] оборудование обнулило сумму")
+                            break
+
+                        order.refresh_from_db()
+                        if order.status == 'failed':
+                            print(f"[BILL-HOLDER] оплата прервана во время ожидания обнуления")
+                            self.client.write_register(self.ask_register_address, 0)
+                            return False
+
+                    final_ack_success = self.client.write_register(self.ask_register_address, 0)
+                    if not final_ack_success:
+                        logger.error("BillHolder: ошибка завершения обработки купюры")
+                        print(f"[BILL-HOLDER] ошибка завершения обработки купюры")
+
                     # Добавляем купюру к сумме
                     order.amount_sum += cash_nominal
                     order.save(update_fields=['amount_sum'])
 
                     logger.info(
                         f"BillHolder: внесено {cash_nominal}. Текущая сумма: {order.amount_sum}/{order.program_price}")
+                    print(
+                        f"[BILL-HOLDER] внесено {cash_nominal}. Текущая сумма: {order.amount_sum}/{order.program_price}")
 
                     try:
                         ts = TerminalStatus.objects.first()
@@ -107,7 +138,8 @@ class BillHolderService:
                     # Проверяем, достигли ли нужной суммы
                     if order.amount_sum >= order.program_price:
                         logger.info(
-                            f"BillHolder: оплата завершена. Внесено: {order.amount_sum}, требуется: {order.program_price}")
+                            f"[BILL-HOLDER] Оплата завершена. Внесено: {order.amount_sum}, требуется: {order.program_price}")
+                        print(f"[BILL-HOLDER] Оплата наличными прошла успешно. Внесено: {order.amount_sum}")
                         return True
 
                 # Проверяем, не был ли отменен заказ

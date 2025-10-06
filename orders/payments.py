@@ -54,6 +54,48 @@ def bank_card_payment(order):
         client.disconnect()
 
 
+def cancel_bank_card_payment(order) -> bool:
+    """
+        Отмена банковской операции через Vendotek
+
+        Returns:
+            bool: True если отмена успешна или не требуется, False при ошибке
+        """
+    try:
+        print(f"[VENDOTEK] Попытка отмены банковской операции для заказа {order.id}")
+
+        client = VendotekClient.from_db()
+        if not client:
+            print("[VENDOTEK] Не удалось получить конфигурацию терминала для отмены")
+            return False
+
+        if not client.connect():
+            print("[VENDOTEK] Ошибка подключения к терминалу для отмены")
+            return False
+
+        try:
+            # Отправляем команду отмены ABR
+            response = client.send_abr()
+
+            if response.success:
+                print(f"[VENDOTEK] Операция отменена успешно для заказа {order.id}")
+                return True
+            else:
+                print(f"[VENDOTEK] Ошибка отмены операции: {response.error_message}")
+                return False
+
+        except Exception as e:
+            print(f"[VENDOTEK] Исключение при отмене операции: {e}")
+            return False
+
+        finally:
+            client.disconnect()
+
+    except Exception as e:
+        print(f"[VENDOTEK] Критическая ошибка при отмене банковской операции: {e}")
+        return False
+
+
 def cash_payment(order):
     """
     Симуляция оплаты наличными.
@@ -62,6 +104,22 @@ def cash_payment(order):
     if not success:
         print(f"[CASH_PAYMENT] Ошибка наличной оплаты")
         return False, "[CASH_PAYMENT] Ошибка наличной оплаты"
+
+    # print("[LOG] Выбран тип оплаты: cash")
+    ## time.sleep(15)
+    # time.sleep(3)
+    # order.amount_sum = 100
+    # order.save()
+    # time.sleep(3)
+    # order.amount_sum = 200
+    # order.save()
+    # time.sleep(3)
+    # order.amount_sum = 300
+    # order.save()
+    # time.sleep(3)
+    # order.amount_sum = 400
+    # order.save()
+    # print("[LOG] Оплата наличными прошла успешно.")
 
     return True, ""
 

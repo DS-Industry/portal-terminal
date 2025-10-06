@@ -1,14 +1,15 @@
 import uuid
 import time
 
-from django.shortcuts import get_object_or_404
+from django.apps import apps
 from django.utils import timezone
+
+from .ping_dscloud import _start_payed_without_queue
 from .websocket_service import OrderWebSocketService
 
 from rest_framework import viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
 from .encoder import EncodedParams
 
 from .models import (
@@ -29,6 +30,7 @@ from .payments import (
     cash_payment,
     loyalty_card_payment,
     mobile_app_payment,
+    cancel_bank_card_payment
 )
 from .queue_option import (
     assign_queue_number_and_position,
@@ -181,10 +183,18 @@ class WashOrderPaymentView(APIView):
         if payment_type == "cash":
             print(f"[CASH_PAYMENT] Начало обработки оплаты по наличке для заказа {order.transaction_id}")
             success, error_message = cash_payment(order)
+            order.refresh_from_db()
+            if order.status == WashOrder.Status.FAILED:
+                return Response(
+                    {"error": "Заказ был отменен во время обработки платежа"},
+                    status=400
+                )
+
             if not success:
                 order.status = WashOrder.Status.FAILED
                 order.save(update_fields=["status"])
                 print(f"[CASH_PAYMENT] Оплата не удалась для заказа {order.transaction_id}. Статус изменен на FAILED.")
+                OrderWebSocketService.send_error(1001)
                 return Response(
                     {"error": f"Ошибка оплаты по наличке: {error_message}"},
                     status=400,
@@ -194,17 +204,25 @@ class WashOrderPaymentView(APIView):
         elif payment_type == "bank_card":
             print(f"[VENDOTEK] Начало обработки оплаты по банковской карте для заказа {order.transaction_id}")
             success, error_message = bank_card_payment(order)
+
+            order.refresh_from_db()
+            if order.status == WashOrder.Status.FAILED:
+                return Response(
+                    {"error": "Заказ был отменен во время обработки платежа"},
+                    status=400
+                )
             if not success:
                 order.status = WashOrder.Status.FAILED
                 order.save(update_fields=["status"])
                 print(f"[VENDOTEK] Оплата не удалась для заказа {order.transaction_id}. Статус изменен на FAILED.")
+                OrderWebSocketService.send_error(1002)
                 return Response(
                     {"error": f"Ошибка оплаты по банковской карте: {error_message}"},
                     status=400,
                 )
             print(f"[VENDOTEK] Оплата успешно завершена для заказа {order.transaction_id}")
 
-            #отправляем событие "Безнал" 
+            # отправляем событие "Безнал"
             try:
                 ts = TerminalStatus.objects.first()
                 device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
@@ -224,17 +242,25 @@ class WashOrderPaymentView(APIView):
                 print(f"[ENCODER_MANAGE] Bank card payment sent (oper=23): {results}")
             except Exception as e:
                 print(f"[ENCODER_MANAGE] Error sending bank-card payment event: {e}")
-                
+
         elif payment_type == "mobile_app":
             return mobile_app_payment(order)
 
         elif payment_type == "loyalty_card":
             print(f"[LOYALTY] Начало обработки оплаты по карте лояльности для заказа {order.transaction_id}")
             success, error_message = loyalty_card_payment(order, ucn)
+
+            order.refresh_from_db()
+            if order.status == WashOrder.Status.FAILED:
+                return Response(
+                    {"error": "Заказ был отменен во время обработки платежа"},
+                    status=400
+                )
             if not success:
                 order.status = WashOrder.Status.FAILED
                 order.save(update_fields=["status"])
                 print(f"[LOYALTY] Оплата не удалась для заказа {order.transaction_id}. Статус изменен на FAILED.")
+                OrderWebSocketService.send_error(1003)
                 return Response(
                     {"error": f"Ошибка оплаты по карте лояльности: {error_message}"},
                     status=400,
@@ -243,13 +269,6 @@ class WashOrderPaymentView(APIView):
 
         else:
             return Response({"error": "Неверный тип оплаты"}, status=400)
-
-        order.refresh_from_db()
-        if order.status == WashOrder.Status.FAILED:
-            return Response(
-                {"error": "Заказ был отменен во время обработки платежа"},
-                status=400
-            )
 
         order.status = WashOrder.Status.PAYED
         order.amount_sum = int(order.program_price)
@@ -310,6 +329,11 @@ class WashOrderCancellationView(APIView):
                 status=400
             )
 
+        if order.payment_type == 'bank_card':
+            cancellation_success = cancel_bank_card_payment(order)
+            if not cancellation_success:
+                print(f"[VENDOTEK] Заказ {order.id} отменен, но ошибка отмены в Vendotek")
+
         order.status = WashOrder.Status.FAILED
         order.save(update_fields=["status"])
         print(f"[LOG] Заказ отменен {order.id}.")
@@ -317,6 +341,37 @@ class WashOrderCancellationView(APIView):
         return Response(
             {
                 "message": "Заказ отменен."
+            },
+            status=200,
+        )
+
+
+class WashOrderStartView(APIView):
+    def post(self, request, order_id):
+
+        try:
+            order = WashOrder.objects.get(pk=order_id)
+        except WashOrder.DoesNotExist:
+            return Response({'error': 'Заказ не найден'}, status=400)
+
+        allowed_statuses = [WashOrder.Status.PAYED]
+
+        if order.status not in allowed_statuses:
+            return Response(
+                {
+                    'error': f'Невозможно запустить заказ со статусом "{order.get_status_display()}"'
+                },
+                status=400
+            )
+
+        TerminalStatus = apps.get_model('orders', 'TerminalStatus')
+
+        _start_payed_without_queue(order, TerminalStatus, 3)
+        print(f"[LOG] Заказ отправлен на запуск {order.id}.")
+
+        return Response(
+            {
+                "message": "Заказ отправлен на запуск."
             },
             status=200,
         )

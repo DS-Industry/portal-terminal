@@ -30,6 +30,7 @@ if not CORS_ALLOW_ALL_ORIGINS:
         "http://localhost:5173",
         "http://127.0.0.1:5173",
         "http://192.168.0.97:5173",
+        "http://192.168.53.145:5173",
         "http://192.168.0.97:8000",
     ]
 
@@ -224,7 +225,7 @@ class FilteredStreamToLogger:
         self.target_prefixes = [
             '[LOG]', '[LOYALTY]', '[QR]', '[VENDOTEK]',
             '[INIT]', '[PLC-PROGRAMS]', '[PLC-STATUS]',
-            '[PLC]', '[DS]', '[PLC-PRICES]'
+            '[PLC]', '[DS]', '[PLC-PRICES]', '[BILL-HOLDER]', '[WASH]'
         ]
 
     def write(self, buf):

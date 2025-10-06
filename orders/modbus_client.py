@@ -73,6 +73,23 @@ class ModbusClient:
             logger.error(f"Error reading register {address}: {e}")
             return None
 
+    def read_coil(self, address: int) -> Optional[bool]:
+        """Read single coil"""
+        if not self.connected:
+            logger.error("Not connected to PLC")
+            return None
+
+        try:
+            result = self.client.read_coils(address, 1)
+            print(f"[WASH] {result}")
+            if result.isError():
+                logger.error(f"Error reading coil {address}")
+                return None
+            return bool(result.bits[0])
+        except Exception as e:
+            logger.error(f"Error reading coil {address}: {e}")
+            return None
+
     def write_register(self, address: int, value: int, unit_id: int = 1) -> bool:
         if not self.connected:
             logger.error("Not connected to PLC")

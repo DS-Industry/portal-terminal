@@ -11,7 +11,8 @@ from .views import (
     WashOrderDetailView,
     UcnCheckView,
     OpenReaderView,
-    MobileQrView
+    MobileQrView,
+    WashOrderStartView
 )
 
 router = DefaultRouter()
@@ -24,6 +25,7 @@ urlpatterns = router.urls + [
     path('ucn-check/', UcnCheckView.as_view(), name='ucn-check'),
     path('mobile-qr/', MobileQrView.as_view(), name='ucn-check'),
     path('cancellation/<int:order_id>/', WashOrderCancellationView.as_view(), name='washorder-cancellation'),
+    path('start/<int:order_id>/', WashOrderStartView.as_view(), name='washorder-start'),
     path('order-detail/<int:order_id>/', WashOrderDetailView.as_view(), name='washorder-detail'),
     path('open-reader/', OpenReaderView.as_view(), name='open-reader'),
 ]
