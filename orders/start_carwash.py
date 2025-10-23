@@ -54,9 +54,9 @@ def _run_wash(order_id: int):
     try:
         service = PLCService(DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC)
         if service.connect():
-            started = service.start_program(order.program.id)
+            started = service.start_program(order.program)
             if not started:
-                print(f"[WASH] Не удалось стартовать программу id_service={order.program.id_service} на PLC")
+                print(f"[WASH] Не удалось стартовать программу id={order.program.id} на PLC")
         else:
             print("[WASH] Не удалось подключиться к PLC для запуска программы")
 

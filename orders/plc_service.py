@@ -170,23 +170,19 @@ class PLCService:
             'port': self.client.port
         }
     
-    def start_program(self, program_number: int) -> bool:
+    def start_program(self, program) -> bool:
         try:
-            program = self.get_program_by_number(program_number)
-            if program is None:
-                logger.error(f"Program with id={program_number} not found")
-                return False
 
             address = program.plc_start_write_address
             if address is None:
                 logger.error(
-                    f"Program {program_number} has invalid plc_start_write_address: {address}"
+                    f"Program {program.id} has invalid plc_start_write_address: {address}"
                 )
                 return False
 
             return self.client.write_coil(address, True)
         except Exception as e:
-            logger.error(f"Error starting program {program_number}: {e}")
+            logger.error(f"Error starting program {program.id}: {e}")
             return False
 
     def get_wash_status(self) -> Optional[bool]:
@@ -201,14 +197,25 @@ class PLCService:
             return None
 
         try:
-            status_value = self.client.read_coil(WASH_STATUS_REGISTER)
-            print(f"[WASH] WASH_STATUS_REGISTER={WASH_STATUS_REGISTER} на {status_value}")
+            register_value_a = self.client.read_coil(2991)
+            print(f"[WASH] WASH_STATUS_REGISTER={2991} на {register_value_a}")
 
-            if status_value is None:
-                logger.error(f"Failed to read wash status from register {WASH_STATUS_REGISTER}")
+            register_value_b = self.client.read_coil(2993)
+            print(f"[WASH] WASH_STATUS_REGISTER={2993} на {register_value_b}")
+
+            register_value_c = self.client.read_coil(374)
+            print(f"[WASH] WASH_STATUS_REGISTER={374} на {register_value_c}")
+
+            register_value_d = self.client.read_coil(374*8)
+            print(f"[WASH] WASH_STATUS_REGISTER={374*8} на {register_value_d}")
+
+            if register_value_a is None:
+                logger.error(f"Failed to read wash status from register {375}")
                 return None
 
-            wash_in_progress = bool(status_value)
+            wash_in_progress = (register_value_a & 0x01) == 1
+
+            print(f"[WASH] Holding register 375 value: {register_value_a} (binary: {bin(register_value_a)}), WorkProgramm (bit0): {wash_in_progress}")
             return wash_in_progress
 
         except Exception as e:

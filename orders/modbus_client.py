@@ -90,6 +90,24 @@ class ModbusClient:
             logger.error(f"Error reading coil {address}: {e}")
             return None
 
+    def read_holding(self, address: int) -> Optional[int]:
+        """Read single holding register"""
+        if not self.connected:
+            logger.error("Not connected to PLC")
+            return None
+
+        try:
+            result = self.client.read_holding_registers(address, 1)
+            print(f"[HOLDING] Reading holding register {address}: {result}")
+
+            if result.isError():
+                logger.error(f"Error reading holding register {address}")
+                return None
+            return result.registers[0] if result.registers else None
+        except Exception as e:
+            logger.error(f"Error reading holding register {address}: {e}")
+            return None
+
     def write_register(self, address: int, value: int, unit_id: int = 1) -> bool:
         if not self.connected:
             logger.error("Not connected to PLC")
