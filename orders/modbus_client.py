@@ -90,6 +90,26 @@ class ModbusClient:
             logger.error(f"Error reading coil {address}: {e}")
             return None
 
+    def read_discrete_input(self, address: int) -> Optional[bool]:
+        """Read single discrete input (function code 0x02)."""
+        if not self.connected:
+            logger.error("Not connected to PLC")
+            return None
+
+        try:
+            result = self.client.read_discrete_inputs(address, 1)
+            print(f"[PLC] read_discrete_inputs({address}) -> {result}")
+
+            if result.isError():
+                logger.error(f"Error reading discrete input {address}")
+                return None
+
+            return bool(result.bits[0])
+
+        except Exception as e:
+            logger.error(f"Error reading discrete input {address}: {e}")
+            return None
+
     def read_holding(self, address: int) -> Optional[int]:
         """Read single holding register"""
         if not self.connected:

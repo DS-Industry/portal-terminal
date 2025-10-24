@@ -62,6 +62,23 @@ def _run_wash(order_id: int):
 
         # Ожидание завершения мойки
         if started:
+
+            for i in range(30):
+                time.sleep(1)
+                wash_status = service.get_wash_status()
+
+                if wash_status is None:
+                    print("[WASH] Ошибка чтения статуса, продолжаем ждать...")
+                    continue
+
+                if wash_status:  # True → оборудование реально запустилось
+                    print("[WASH] Оборудование подтвердило запуск — снимаем флаг...")
+                    service.end_program(order.program)  # ✅ снимаем флаг сразу
+                    break
+            else:
+                print("[WASH] Оборудование так и не подтвердило запуск")
+                return
+
             print(f"[WASH] Ожидание завершения мойки...")
             time.sleep(15)
             while True:
