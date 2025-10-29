@@ -99,6 +99,7 @@ class WashOrder(models.Model):
         WAITING_PAYMENT = 'waiting_payment'
         PAYED = 'payed'
         FAILED = 'failed'
+        CANCELED = 'canceled'
         COMPLETED = 'completed'
         PROCESSING = 'processing'
         MOBILE_QR_REQUEST = 'mobile_qr_request'

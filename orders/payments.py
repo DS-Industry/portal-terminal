@@ -106,22 +106,6 @@ def cash_payment(order):
         print(f"[CASH_PAYMENT] Ошибка наличной оплаты")
         return False, "[CASH_PAYMENT] Ошибка наличной оплаты"
 
-    # print("[LOG] Выбран тип оплаты: cash")
-    ## time.sleep(15)
-    # time.sleep(3)
-    # order.amount_sum = 100
-    # order.save()
-    # time.sleep(3)
-    # order.amount_sum = 200
-    # order.save()
-    # time.sleep(3)
-    # order.amount_sum = 300
-    # order.save()
-    # time.sleep(3)
-    # order.amount_sum = 400
-    # order.save()
-    # print("[LOG] Оплата наличными прошла успешно.")
-
     return True, ""
 
 

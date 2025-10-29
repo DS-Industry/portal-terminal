@@ -6,7 +6,6 @@ from django.utils import timezone
 
 from .ping_dscloud import _start_payed_without_queue
 from .websocket_service import OrderWebSocketService
-from .start_carwash import start_car_wash
 
 from rest_framework import viewsets
 from rest_framework.response import Response
@@ -181,7 +180,7 @@ class WashOrderPaymentView(APIView):
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: waiting_payment")
 
         order.refresh_from_db()
-        if order.status == WashOrder.Status.FAILED:
+        if order.status == WashOrder.Status.CANCELED:
             return Response(
                 {"error": "Заказ был отменен до начала оплаты"},
                 status=400
@@ -191,7 +190,7 @@ class WashOrderPaymentView(APIView):
             print(f"[CASH_PAYMENT] Начало обработки оплаты по наличке для заказа {order.transaction_id}")
             success, error_message = cash_payment(order)
             order.refresh_from_db()
-            if order.status == WashOrder.Status.FAILED:
+            if order.status == WashOrder.Status.CANCELED:
                 return Response(
                     {"error": "Заказ был отменен во время обработки платежа"},
                     status=400
@@ -213,7 +212,7 @@ class WashOrderPaymentView(APIView):
             success, error_message = bank_card_payment(order)
 
             order.refresh_from_db()
-            if order.status == WashOrder.Status.FAILED:
+            if order.status == WashOrder.Status.CANCELED:
                 return Response(
                     {"error": "Заказ был отменен во время обработки платежа"},
                     status=400
@@ -258,7 +257,7 @@ class WashOrderPaymentView(APIView):
             success, error_message = loyalty_card_payment(order, ucn)
 
             order.refresh_from_db()
-            if order.status == WashOrder.Status.FAILED:
+            if order.status == WashOrder.Status.CANCELED:
                 return Response(
                     {"error": "Заказ был отменен во время обработки платежа"},
                     status=400
@@ -308,7 +307,6 @@ class WashOrderPaymentView(APIView):
         order.save()
         OrderWebSocketService.send_order_status_update(order)
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
-        start_car_wash(order)
 
         return Response(
             {
@@ -342,7 +340,7 @@ class WashOrderCancellationView(APIView):
             if not cancellation_success:
                 print(f"[VENDOTEK] Заказ {order.id} отменен, но ошибка отмены в Vendotek")
 
-        order.status = WashOrder.Status.FAILED
+        order.status = WashOrder.Status.CANCELED
         order.save(update_fields=["status"])
         print(f"[LOG] Заказ отменен {order.id}.")
 
