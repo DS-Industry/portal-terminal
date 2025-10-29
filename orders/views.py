@@ -279,6 +279,10 @@ class WashOrderPaymentView(APIView):
         order.status = WashOrder.Status.PAYED
         order.amount_sum = int(order.program_price)
 
+        order.save()
+        OrderWebSocketService.send_order_status_update(order)
+        print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
+
         if payment_type in ("cash", "bank_card"):
             qr_code = send_receipt_request(order)
             if qr_code:
@@ -305,8 +309,7 @@ class WashOrderPaymentView(APIView):
 
         queue_number_to_return = order.queue_number
         order.save()
-        OrderWebSocketService.send_order_status_update(order)
-        print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
+        print(f"[LOG] Статус заказа {order.transaction_id} обновлён: изменение в qr-code")
 
         return Response(
             {
