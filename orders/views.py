@@ -335,14 +335,14 @@ class WashOrderCancellationView(APIView):
                 status=400
             )
 
+        order.status = WashOrder.Status.CANCELED
+        order.save(update_fields=["status"])
+        print(f"[LOG] Заказ отменен {order.id}.")
+
         if order.payment_type == 'bank_card':
             cancellation_success = cancel_bank_card_payment(order)
             if not cancellation_success:
                 print(f"[VENDOTEK] Заказ {order.id} отменен, но ошибка отмены в Vendotek")
-
-        order.status = WashOrder.Status.CANCELED
-        order.save(update_fields=["status"])
-        print(f"[LOG] Заказ отменен {order.id}.")
 
         return Response(
             {
