@@ -38,6 +38,7 @@ def bank_card_payment(order):
         amount = int(order.program_price)
 
         response = client.process_payment(amount)
+        print(f"[VENDOTEK] {response}")
 
         if not response.success:
             print(f"[VENDOTEK] Ошибка оплаты: {response.error_message}")

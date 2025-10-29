@@ -6,6 +6,7 @@ from django.utils import timezone
 
 from .ping_dscloud import _start_payed_without_queue
 from .websocket_service import OrderWebSocketService
+from .start_carwash import start_car_wash
 
 from rest_framework import viewsets
 from rest_framework.response import Response
@@ -56,7 +57,13 @@ class ProgramListView(APIView):
     """
 
     def get(self, request):
-        programs = Program.objects.all().order_by('id')
+        last_program = Program.objects.order_by('-id').first()
+    
+        if last_program:
+            programs = Program.objects.exclude(id=last_program.id).order_by('id')
+        else:
+            programs = Program.objects.all().order_by('id')
+        
         serializer = ProgramSerializer(programs, many=True)
         return Response(serializer.data)
 
@@ -301,6 +308,7 @@ class WashOrderPaymentView(APIView):
         order.save()
         OrderWebSocketService.send_order_status_update(order)
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
+        start_car_wash(order)
 
         return Response(
             {

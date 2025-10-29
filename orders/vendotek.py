@@ -262,10 +262,11 @@ class VendotekClient:
                 self.operation_number = 1
 
             vrp_response = self.send_vrp(amount)
+            print(f"[VENDOTEK] vrp_resp: {vrp_response}")
             if not vrp_response.success:
                 return vrp_response
 
-            approved = int(vrp_response.approved_amount) if vrp_response.approved_amount else 0
+            approved = int(vrp_response.approved_amount)/100 if vrp_response.approved_amount else 0
 
             if approved != amount:
                 self.send_idl()
