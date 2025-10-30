@@ -56,13 +56,7 @@ class ProgramListView(APIView):
     """
 
     def get(self, request):
-        last_program = Program.objects.order_by('-id').first()
-    
-        if last_program:
-            programs = Program.objects.exclude(id=last_program.id).order_by('id')
-        else:
-            programs = Program.objects.all().order_by('id')
-        
+        programs = Program.objects.filter(is_visibility=True).order_by('id')
         serializer = ProgramSerializer(programs, many=True)
         return Response(serializer.data)
 

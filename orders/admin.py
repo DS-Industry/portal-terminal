@@ -24,10 +24,10 @@ class ProgramAdmin(admin.ModelAdmin):
     """Настройка отображения таблицы программ мойки в админке.
     Показываем ID, название, цену, описание, время выполнения, id_service и функции.
     """
-    list_display = ('id', 'name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions', 'plc_start_write_address')
+    list_display = ('id', 'name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions', 'plc_start_write_address', 'is_visibility')
     ordering = ('id',)
-    fields = ('name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions', 'plc_start_write_address')
-    list_editable = ('name', 'plc_start_write_address')
+    fields = ('name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions', 'plc_start_write_address', 'is_visibility')
+    list_editable = ('name', 'plc_start_write_address', 'is_visibility')
 
 
 @admin.register(WashOrder)

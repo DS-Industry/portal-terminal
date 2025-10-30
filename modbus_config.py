@@ -109,19 +109,9 @@ REGISTERS = {
     }
 }
 
-# Настройки по умолчанию
-DEFAULT_HOST_PLC = '192.168.28.150'
-DEFAULT_PORT_PLC = 502
-DEFAULT_TIMEOUT_PLC = 10
-WASH_STATUS_REGISTER = 375
-
-DEFAULT_HOST_BILL_HOLDER = '192.168.28.155'
-DEFAULT_PORT_BILL_HOLDER = 502
-DEFAULT_TIMEOUT_BILL_HOLDER = 10
-
 # Настройки опроса
 POLLING_INTERVALS = {
-    'prices': 1,      # Опрос цен каждые 3 секунды
-    'programs': 1,   # Опрос программ каждые 30 секунд
-    'status': 1       # Опрос статуса каждую секунду
+    'prices': 60,
+    'programs': 60,
+    'status': 60
 }

@@ -1,16 +1,35 @@
 import logging
 from typing import Optional
 import time
-
+import os
+from pathlib import Path
 from django.conf import settings
 
 from .modbus_client import ModbusClient
-from modbus_config import DEFAULT_HOST_BILL_HOLDER, DEFAULT_PORT_BILL_HOLDER, DEFAULT_TIMEOUT_BILL_HOLDER
 
 logger = logging.getLogger(__name__)
 from .models import TerminalStatus
 from .encoder import EncodedParams
 from django.utils import timezone
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+env_file = BASE_DIR / ".env"
+
+try:
+    env_host = os.getenv("DEFAULT_HOST_BILL_HOLDER")
+    env_port = os.getenv("DEFAULT_PORT_BILL_HOLDER")
+    env_timeout = os.getenv("DEFAULT_TIMEOUT_BILL_HOLDER")
+
+    if env_host:
+        DEFAULT_HOST_BILL_HOLDER = env_host
+
+    if env_port and env_port.isdigit():
+        DEFAULT_PORT_BILL_HOLDER = int(env_port)
+
+    if env_timeout and env_timeout.isdigit():
+        DEFAULT_TIMEOUT_BILL_HOLDER = int(env_timeout)
+except Exception as e:
+    print(f"Ошибка при загрузке переменных окружения: {e}")
 
 
 class BillHolderService:

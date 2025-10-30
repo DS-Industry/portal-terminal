@@ -92,7 +92,7 @@ def send_prices_to_dscloud():
 
         car_wash_id = ts.car_wash_identifier
 
-        programs = Program.objects.all()
+        programs = Program.objects.filter(is_visibility=True)
 
         if not programs.exists():
             print("[DS-PRICES] Нет программ для отправки.")

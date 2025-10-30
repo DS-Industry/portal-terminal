@@ -62,6 +62,11 @@ class Program(models.Model):
         help_text="Адрес для старта программы в PLC",
     )
 
+    is_visibility = models.BooleanField(
+        default=False,
+        help_text="Видимость программы",
+    )
+
     def get_functions_list(self):
         """Возвращает список функций из строки с разделителями"""
         if not self.functions:

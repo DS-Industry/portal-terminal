@@ -2,15 +2,34 @@
 """
 Simple PLC service for syncing programs from OWEN PLC to database
 """
-
+import os
 import logging
 from typing import Dict, List, Optional
 from django.db import transaction
 from .modbus_client import ModbusClient
 from .models import Program
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
-from modbus_config import DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC, WASH_STATUS_REGISTER
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+env_file = BASE_DIR / ".env"
+
+try:
+    env_host = os.getenv("DEFAULT_HOST_PLC")
+    env_port = os.getenv("DEFAULT_PORT_PLC")
+    env_timeout = os.getenv("DEFAULT_TIMEOUT_PLC")
+
+    if env_host:
+        DEFAULT_HOST_PLC = env_host
+
+    if env_port and env_port.isdigit():
+        DEFAULT_PORT_PLC = int(env_port)
+
+    if env_timeout and env_timeout.isdigit():
+        DEFAULT_TIMEOUT_PLC = int(env_timeout)
+except Exception as e:
+    print(f"Ошибка при загрузке переменных окружения: {e}")
 
 
 class PLCService:
@@ -96,6 +115,14 @@ class PLCService:
         program_number = int(program_data['program_name'].replace('Program', ''))
         program_name = f"Program {program_number}"
 
+        mapping = {
+            1: 18,
+            2: 19,
+            3: 20,
+            4: 24
+        }
+        program_number = mapping.get(program_number, program_number)
+
         try:
             with transaction.atomic():
                 # Extract function names from steps (functions is array of objects)
@@ -169,7 +196,7 @@ class PLCService:
             'host': self.client.host,
             'port': self.client.port
         }
-    
+
     def start_program(self, program) -> bool:
         try:
 

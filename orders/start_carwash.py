@@ -1,8 +1,9 @@
 import time
+import os
 
 from datetime import datetime, timezone as dt_timezone
 from typing import Optional
-
+from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from .websocket_service import OrderWebSocketService
@@ -12,7 +13,25 @@ from django.utils import timezone
 
 from .encoder import EncodedParams
 from .plc_service import PLCService
-from modbus_config import DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+env_file = BASE_DIR / ".env"
+
+try:
+    env_host = os.getenv("DEFAULT_HOST_PLC")
+    env_port = os.getenv("DEFAULT_PORT_PLC")
+    env_timeout = os.getenv("DEFAULT_TIMEOUT_PLC")
+
+    if env_host:
+        DEFAULT_HOST_PLC = env_host
+
+    if env_port and env_port.isdigit():
+        DEFAULT_PORT_PLC = int(env_port)
+
+    if env_timeout and env_timeout.isdigit():
+        DEFAULT_TIMEOUT_PLC = int(env_timeout)
+except Exception as e:
+    print(f"Ошибка при загрузке переменных окружения: {e}")
 
 
 _scheduler: Optional[BackgroundScheduler] = None
