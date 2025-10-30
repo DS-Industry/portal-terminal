@@ -5,14 +5,17 @@ import requests
 from django.apps import apps
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
+from django.utils import timezone
 
 from pathlib import Path
 
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.interval import IntervalTrigger
 
-from .start_carwash import start_car_wash 
+from .start_carwash import start_car_wash
+from .websocket_service import OrderWebSocketService
 
+from .encoder import EncodedParams
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -43,7 +46,6 @@ def send_data_to_dscloud():
         identifier = ts.identifier or 0
         url = f"http://{DSCLOUD_IP}:{DSCLOUD_PORT}/api/v1/external/device/write/{identifier}"
 
-        # Формируем строку data (как раньше)
         data_string = (
             f"GVLSum:{int(ts.gvl_sum)},"
             f"GVLErr:{int(ts.gvl_err)},"
@@ -56,19 +58,18 @@ def send_data_to_dscloud():
             "akey": DSCLOUD_API_KEY,
             "data": data_string
         }
-        print(f"[DS] Отправлено на {url} с headers: {headers}")
 
         with requests.Session() as session:
             response = session.get(url, headers=headers, timeout=10)
             response.raise_for_status()
             response_data = response.json()
-            print(f"[DS] Ответ от DScloud: {response_data}")
             return response_data
     except requests.exceptions.RequestException as e:
         print(f"[DS] Ошибка сети/HTTP при отправке на DScloud: {e}")
         return None
     except ValueError as e:
-        print(f"[DS] Ошибка парсинга JSON ответа от DScloud: {e}. Ответ: {response.text if 'response' in locals() else 'Нет ответа'}")
+        print(
+            f"[DS] Ошибка парсинга JSON ответа от DScloud: {e}. Ответ: {response.text if 'response' in locals() else 'Нет ответа'}")
         return None
     except Exception as e:
         print(f"[DS] Неожиданная ошибка при отправке на DScloud: {e}")
@@ -83,35 +84,33 @@ def send_prices_to_dscloud():
     try:
         TerminalStatus = apps.get_model('orders', 'TerminalStatus')
         Program = apps.get_model('orders', 'Program')
-        
+
         ts = TerminalStatus.objects.first()
         if not ts:
             print("[DS-PRICES] Нет записи в TerminalStatus — отправка цен невозможна.")
             return None
-            
+
         car_wash_id = ts.car_wash_identifier
-        
-        programs = Program.objects.all()
-        
+
+        programs = Program.objects.filter(is_visibility=True)
+
         if not programs.exists():
             print("[DS-PRICES] Нет программ для отправки.")
             price_data = {}
         else:
             price_data = {str(program.id_service): str(int(program.price)) for program in programs}
-        
+
         data_json_string = json.dumps(price_data, separators=(',', ':'))
-        
+
         url = f"http://{DSCLOUD_IP}:{DSCLOUD_PORT}/api/v1/external/price/write/{car_wash_id}"
         headers = {
             "akey": DSCLOUD_API_KEY,
             "data": data_json_string
         }
-        print(f"[DS-PRICES] Отправлено на {url} с headers: {headers}")
 
         with requests.Session() as session:
             response = session.get(url, headers=headers, timeout=10)
             response.raise_for_status()
-            print(f"[DS-PRICES] Ответ от DScloud: Status {response.status_code}")
             return response.status_code
     except requests.exceptions.RequestException as e:
         print(f"[DS-PRICES] Ошибка сети/HTTP при отправке цен на DScloud: {e}")
@@ -128,7 +127,7 @@ _gvl_sent_for = None
 _last_processing_order_id = None
 _last_processed_cardsum = 0
 _mobile_order_confirmed = False
-_mobile_in_progress = False 
+_mobile_in_progress = False
 
 
 def _get_ts():
@@ -181,9 +180,8 @@ def _confirm_zero(max_retries: int = 3, label: str = "CLEANUP"):
 
 
 def _next_payed_in_queue(WashOrder):
-    # смещаем позиции и берём того, у кого позиция 0
     from .queue_option import update_queue_positions_after_start
-    update_queue_positions_after_start()  # [LOG] Очередь обновлена... уже логируется внутри
+    update_queue_positions_after_start()
     return WashOrder.objects.filter(
         status=WashOrder.Status.PAYED,
         queue_position=0
@@ -206,27 +204,64 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
     if gvl_cardsum <= 0:
         return False
 
-    _mobile_in_progress = True  # <--- ставим флаг до всех действий
+    _mobile_in_progress = True
     try:
         program = Program.objects.get(price=gvl_cardsum)
         ts = _get_ts()
         if ts:
             _set_ts_gvl_sum(ts, gvl_cardsum)
 
-        # ждём подтверждения суммы от DScloud
         if not _confirm_sum(gvl_cardsum, max_retries, "MOBILE"):
-            # не подтверждено — аккуратно откатываем только cardsum, но НЕ триггерим cleanup
             if ts:
                 ts.gvl_cardsum = 0
                 ts.save()
-            return True  # обработали мобилку в этом тике; остальные ветки пропускаем
-        # подтверждено — создаём заказ и стартуем
+            return True
+        
+        # отправляем событие по gvl_source
+        try:
+            def _map_source_to_oper(src) -> int | None:
+                """
+                Нормализует src в int (если строка/число) и маппит на oper.
+                Возвращает None, если источник неизвестен.
+                """
+                try:
+                    src_int = int(str(src).strip())
+                except Exception:
+                    return None
+                return {
+                    241133: 25,   # Yandex
+                    318: 30,      # Moy-Ka!DS(старая лояльность)
+                    758567: 37,   # Lukoil
+                    151422: 39,   # Onvi
+                }.get(src_int)
+
+            oper = _map_source_to_oper(gvl_source)
+            if not oper:
+                print(f"[ENCODER_MANAGE] Unknown gvl_source={gvl_source!r}, skip sending.")
+            else:
+                device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
+                now_dt = timezone.now()
+                params = EncodedParams(
+                    oper=oper,
+                    status=1,
+                    data=int(gvl_cardsum),
+                    counter=0,
+                    localId=0,
+                    begDate=now_dt,
+                    endDate=now_dt,
+                    deviceId=device_id
+                )
+                results = params.send_hex_to_server()
+                print(f"[ENCODER_MANAGE] Loyalty/mobile event sent (gvl_source={gvl_source}, oper={oper}): {results}")
+        except Exception as e:
+            print(f"[ENCODER_MANAGE] Error sending loyalty/mobile event: {e}")
+
         import uuid as _uuid
         new_order = WashOrder.objects.create(
             program=program,
             program_price=gvl_cardsum,
             transaction_id=f"mobile_app_{_uuid.uuid4()}",
-            status=WashOrder.Status.PROCESSING,
+            status=WashOrder.Status.PAYED,
             ucn=str(gvl_cardnum) if gvl_cardnum else "",
             payment_type=WashOrder.PaymentType.MOBILE_APP,
             gvl_source=gvl_source,
@@ -235,6 +270,7 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
         if ts:
             ts.gvl_cardsum = 0
             ts.save()
+        OrderWebSocketService.send_order_status_update(new_order)
         print(f"[DS-MOBILE] Немедленный запуск мойки для заказа {new_order.transaction_id}")
         start_car_wash(new_order)
         return True  # в этот тик ничего больше не делаем
@@ -248,11 +284,13 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
     finally:
         _mobile_in_progress = False
 
+
 def _start_payed_without_queue(payed_order, TerminalStatus, max_retries: int):
     expected_sum = int(payed_order.program_price)
     if payed_order.payment_type == payed_order.PaymentType.LOYALTY_CARD:
-        print(f"[DS-PAYED] Заказ {payed_order.transaction_id} оплачен картой лояльности. Ждём 5 сек.")
-        import time as _t; _t.sleep(5)
+        print(f"[DS-PAYED] Заказ {payed_order.transaction_id} оплачен картой лояльности.")
+        import time as _t;
+        _t.sleep(5)
     ts = TerminalStatus.objects.first()
     if ts:
         _set_ts_gvl_sum(ts, expected_sum)
@@ -263,12 +301,12 @@ def _start_payed_without_queue(payed_order, TerminalStatus, max_retries: int):
     print(f"[DS-PAYED] Старт мойки для заказа {payed_order.transaction_id}")
     start_car_wash(payed_order)
 
+
 def _handover_between_washes(WashOrder, TerminalStatus, max_retries: int):
     """
     Стык моек: если есть очередь — НЕ обнуляем, а сразу шлём сумму следующего и стартуем;
     если очереди нет — обнуляем.
     """
-    # очередь?
     next_order = _next_payed_in_queue(WashOrder)
     ts = TerminalStatus.objects.first()
     if next_order:
@@ -279,11 +317,9 @@ def _handover_between_washes(WashOrder, TerminalStatus, max_retries: int):
             print(f"[DS-HANDOVER] Старт мойки для заказа {next_order.transaction_id} без перехода в Free")
             start_car_wash(next_order)
         else:
-            # важно: НЕ обнуляем gvl_sum, как ты просил
             print("[DS-HANDOVER] Подтверждение не пришло. GVL_SUM НЕ обнуляем. Повторит следующая итерация.")
         return
 
-    # очереди нет — обнуляем и подтверждаем 0
     if ts and ts.gvl_sum != 0:
         print(f"[DS-CLEANUP] Очереди нет. Обнуляем GVL_SUM (было {ts.gvl_sum}).")
         _set_ts_gvl_sum(ts, 0)
@@ -299,29 +335,23 @@ def dscloud_job():
 
         processing_order = WashOrder.objects.filter(status=WashOrder.Status.PROCESSING).first()
         if processing_order:
-            print(f"[DS] Мойка занята (заказ {processing_order.transaction_id}). Пинг отключен до завершения.")
             _gvl_sent_for = str(processing_order.transaction_id)
             _last_processing_order_id = str(processing_order.transaction_id)
             return
 
-        print("[DS] Мойка свободна. Выполняем пинг и обработку оплат/запусков.")
         response_data = send_data_to_dscloud()
 
-        # --- 1) MOBILE: если пришла сумма из мобилки — обрабатываем и выходим из этого тика ---
         if _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, max_retries):
-            return  # <--- ВАЖНО: не даём зайти в CLEANUP и прочие ветки в эту же итерацию
-
-        # --- 2) PAYED без очереди ---
-        payed_no_queue = WashOrder.objects.filter(
-            status=WashOrder.Status.PAYED,
-            queue_position=None
-        ).order_by("id").first()
-        if payed_no_queue:
-            print(f"[DS-PAYED] Обнаружен PAYED без очереди: {payed_no_queue.transaction_id}")
-            _start_payed_without_queue(payed_no_queue, TerminalStatus, max_retries)
             return
 
-        # --- 3) HANDOVER между мойками ---
+        #payed_no_queue = WashOrder.objects.filter(
+        #    status=WashOrder.Status.PAYED,
+        #    queue_position=None
+        #).order_by("id").first()
+        #if payed_no_queue:
+        #    _start_payed_without_queue(payed_no_queue, TerminalStatus, max_retries)
+        #    return
+
         if _gvl_sent_for and not processing_order:
             print(f"[DS-HANDOVER] Заказ {_gvl_sent_for} завершён. Обрабатываем переход.")
             _handover_between_washes(WashOrder, TerminalStatus, max_retries)
@@ -330,15 +360,12 @@ def dscloud_job():
             _mobile_order_confirmed = False
             return
 
-        # --- 4) CLEANUP: обнуляем только если НЕТ мобилки в процессе и НЕТ «сырых» данных от мобилки ---
         ts = _get_ts()
         if ts and ts.gvl_sum != 0:
-            # если есть очередь — ничего не трогаем
             has_queue = WashOrder.objects.filter(
                 status__in=[WashOrder.Status.CREATED, WashOrder.Status.WAITING_PAYMENT, WashOrder.Status.PAYED],
                 queue_position__isnull=False
             ).exists()
-            # блокируем cleanup при любом мобильном «хвосте»
             if not has_queue and not _mobile_in_progress and int(ts.gvl_cardsum or 0) == 0:
                 print(f"[DS-CLEANUP] Нет активных заказов и очереди. Обнуляем GVL_SUM (было {ts.gvl_sum}).")
                 _set_ts_gvl_sum(ts, 0)
@@ -348,17 +375,16 @@ def dscloud_job():
         print(f"[DS] Критическая ошибка в dscloud_job: {e}")
 
 
-
 def dscloud_prices_job():
     """
     Фоновая задача для APScheduler.
     Отправляет данные о ценах программ каждую минуту.
     """
-    print("[DS-PRICES] Запуск задачи отправки цен.")
     send_prices_to_dscloud()
-    print("[DS-PRICES] Задача отправки цен завершена.")
+
 
 _scheduler_instance = None
+
 
 def start_dscloud_scheduler():
     """
@@ -366,17 +392,17 @@ def start_dscloud_scheduler():
     Гарантирует, что планировщик запускается только один раз.
     """
     global _scheduler_instance
-    
+
     if _scheduler_instance is not None:
         if _scheduler_instance.running:
             print("[DS] APScheduler уже запущен, повторный запуск пропущен.")
             return
         else:
             print("[DS] APScheduler был остановлен, создаем новый экземпляр.")
-    
+
     print("[DS] Инициализация APScheduler для DScloud...")
     _scheduler_instance = BackgroundScheduler()
-    
+
     _scheduler_instance.add_job(
         func=dscloud_job,
         trigger=IntervalTrigger(seconds=5),
@@ -384,14 +410,14 @@ def start_dscloud_scheduler():
         name='DScloud Ping Job (State)',
         replace_existing=True,
     )
-    
+
     _scheduler_instance.add_job(
         func=dscloud_prices_job,
-        trigger=IntervalTrigger(hours=int(PRICE_PING)), #minutes=1
+        trigger=IntervalTrigger(hours=int(PRICE_PING)),  # minutes=1
         id='dscloud_prices_ping_job',
         name='DScloud Ping Job (Prices)',
         replace_existing=True,
     )
-    
+
     _scheduler_instance.start()
     print("[DS] APScheduler для DScloud успешно запущен (State ping: 5s, Prices ping: 1min).")

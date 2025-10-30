@@ -1,12 +1,37 @@
 import time
+import os
 
 from datetime import datetime, timezone as dt_timezone
 from typing import Optional
-
+from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
+from .websocket_service import OrderWebSocketService
 
 from django.apps import apps
+from django.utils import timezone
+
+from .encoder import EncodedParams
+from .plc_service import PLCService
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+env_file = BASE_DIR / ".env"
+
+try:
+    env_host = os.getenv("DEFAULT_HOST_PLC")
+    env_port = os.getenv("DEFAULT_PORT_PLC")
+    env_timeout = os.getenv("DEFAULT_TIMEOUT_PLC")
+
+    if env_host:
+        DEFAULT_HOST_PLC = env_host
+
+    if env_port and env_port.isdigit():
+        DEFAULT_PORT_PLC = int(env_port)
+
+    if env_timeout and env_timeout.isdigit():
+        DEFAULT_TIMEOUT_PLC = int(env_timeout)
+except Exception as e:
+    print(f"Ошибка при загрузке переменных окружения: {e}")
 
 
 _scheduler: Optional[BackgroundScheduler] = None
@@ -42,17 +67,94 @@ def _run_wash(order_id: int):
     print(f"[WASH] Старт мойки (order={order.transaction_id})")
     order.status = WashOrder.Status.PROCESSING
     order.save()
+    OrderWebSocketService.send_order_status_update(order)
 
-    # 1) Собственно мойка — 60 сек
-    time.sleep(60)
+    service = None
+    try:
+        service = PLCService(DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC)
+        if service.connect():
+            started = service.start_program(order.program)
+            if not started:
+                print(f"[WASH] Не удалось стартовать программу id={order.program.id} на PLC")
+        else:
+            print("[WASH] Не удалось подключиться к PLC для запуска программы")
 
+        # Ожидание завершения мойки
+        if started:
+
+            for i in range(30):
+                time.sleep(1)
+                wash_status = service.get_wash_status()
+
+                if wash_status is None:
+                    print("[WASH] Ошибка чтения статуса, продолжаем ждать...")
+                    continue
+
+                if wash_status:  # True → оборудование реально запустилось
+                    print("[WASH] Оборудование подтвердило запуск — снимаем флаг...")
+                    service.end_program(order.program)  # ✅ снимаем флаг сразу
+                    break
+            else:
+                print("[WASH] Оборудование так и не подтвердило запуск")
+                return
+
+            print(f"[WASH] Ожидание завершения мойки...")
+            time.sleep(15)
+            while True:
+                time.sleep(3)
+
+                # Получаем статус мойки
+                wash_status = service.get_wash_status()
+
+                if wash_status is None:
+                    print(f"[WASH] Ошибка чтения статуса мойки, продолжаем ожидание...")
+                    continue
+
+                if not wash_status:  # False - мойка завершена
+                    print(f"[WASH] Мойка завершена по статусу PLC")
+                    break
+
+    except Exception as e:
+        print(f"[WASH] Ошибка при работе с PLC: {e}")
+    finally:
+        if service:
+            try:
+                service.disconnect()
+            except Exception:
+                pass
+    
+    
+    start_dt = timezone.now()
     # 2) Завершаем заказ
     order.status = WashOrder.Status.COMPLETED
     order.queue_position = None
     order.queue_number = None
     order.save()
+    OrderWebSocketService.send_order_status_update(order)
     print(f"[WASH] Мойка завершена (order={order.transaction_id}) -> COMPLETED")
 
+    # отправляем событие "Программа (в конце мойки)"
+    try:
+        TerminalStatus = apps.get_model('orders', 'TerminalStatus')
+        ts = TerminalStatus.objects.first()
+        device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
+
+        end_dt = timezone.now()
+        params = EncodedParams(
+            oper=3,
+            status=1,
+            data=119,
+            counter=0,
+            localId=0,
+            begDate=start_dt,
+            endDate=end_dt,
+            deviceId=device_id
+        )
+        results = params.send_hex_to_server()
+        print(f"[ENCODER_MANAGE] Program finished sent (oper=3): {results}")
+    except Exception as e:
+        print(f"[ENCODER_MANAGE] Error sending program-finished event: {e}")
+        
     # 3) Пауза между мойками
     try:
         ws = WashSettings.objects.first()
@@ -60,7 +162,6 @@ def _run_wash(order_id: int):
     except Exception:
         pause_sec = 5
 
-    print(f"[WASH] Пауза между мойками: {pause_sec} сек...")
     time.sleep(pause_sec)
 
     # 4) Запуск следующего из очереди

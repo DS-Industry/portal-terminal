@@ -1,15 +1,38 @@
 import os
+import sys
+import logging
 
 from dotenv import load_dotenv
 from pathlib import Path
-
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = os.getenv('SECRET_KEY', 'default-key')
 DEBUG = os.getenv("DEBUG", "False") == "True"
-ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost").split(",")
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "127.0.0.1,localhost,*").split(",")
+CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL_ORIGINS", "False") == "True"
+
+ASGI_APPLICATION = 'config.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [(os.getenv('REDIS_HOST', 'redis'),
+                      int(os.getenv('REDIS_PORT', 6379)))],
+        },
+    },
+}
+
+if not CORS_ALLOW_ALL_ORIGINS:
+    CORS_ALLOWED_ORIGINS = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://192.168.0.97:5173",
+        "http://192.168.53.145:5173",
+        "http://192.168.0.97:8000",
+    ]
 
 INSTALLED_APPS = [
     'django.contrib.admin',
@@ -19,10 +42,13 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'corsheaders',
+    'channels',
     'orders.apps.OrdersConfig',
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     "whitenoise.middleware.WhiteNoiseMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -59,7 +85,7 @@ WSGI_APPLICATION = 'config.wsgi.application'
 #         'NAME': BASE_DIR / 'db.sqlite3',
 #     }
 # }
-    
+
 # Для Docker+Postgres:
 DATABASES = {
     'default': {
@@ -96,6 +122,123 @@ USE_L10N = True
 USE_TZ = True
 
 STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles" 
+STATIC_ROOT = BASE_DIR / "staticfiles"
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# Modbus TCP настройки для OWEN PLC
+MODBUS_HOST = os.getenv('MODBUS_HOST', '192.168.53.120')
+MODBUS_PORT = int(os.getenv('MODBUS_PORT', '502'))
+MODBUS_TIMEOUT = int(os.getenv('MODBUS_TIMEOUT', '10'))
+
+LOG_DIR = os.environ.get('LOG_DIR', os.path.join(BASE_DIR, 'logs'))
+os.makedirs(LOG_DIR, exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '{levelname} {asctime} {module} {message}',
+            'style': '{',
+        },
+        'simple': {
+            'format': '{asctime} {message}',
+            'style': '{',
+        },
+    },
+    'handlers': {
+        # Ротация для основного лога Django (10MB, 5 файлов)
+        'file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_DIR, 'django.log'),
+            'maxBytes': 10 * 1024 * 1024,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
+
+        # Ротация для console логов (10MB, 5 файлов)
+        'console_file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_DIR, 'console.log'),
+            'maxBytes': 10 * 1024 * 1024,  # 10 MB
+            'backupCount': 5,
+            'formatter': 'simple',
+            'encoding': 'utf-8',
+        },
+
+        # Вывод в консоль Docker
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'simple',
+        },
+
+        # Лог для ошибок (5MB, 3 файла)
+        'error_file': {
+            'level': 'ERROR',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': os.path.join(LOG_DIR, 'errors.log'),
+            'maxBytes': 5 * 1024 * 1024,  # 5 MB
+            'backupCount': 3,
+            'formatter': 'verbose',
+            'encoding': 'utf-8',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'django.request': {
+            'handlers': ['error_file', 'console'],
+            'level': 'ERROR',
+            'propagate': False,
+        },
+        'channels': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'orders': {
+            'handlers': ['file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'FILTERED_CONSOLE': {
+            'handlers': ['console_file', 'console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+}
+
+
+class FilteredStreamToLogger:
+    def __init__(self, logger, level):
+        self.logger = logger
+        self.level = level
+        self.target_prefixes = [
+            '[LOG]', '[LOYALTY]', '[QR]', '[VENDOTEK]',
+            '[INIT]', '[PLC-PROGRAMS]', '[PLC-STATUS]',
+            '[PLC]', '[DS]', '[PLC-PRICES]', '[BILL-HOLDER]', '[WASH]'
+        ]
+
+    def write(self, buf):
+        if any(buf.startswith(prefix) for prefix in self.target_prefixes) and buf.strip():
+            for line in buf.rstrip().splitlines():
+                self.logger.log(self.level, line.rstrip())
+
+    def flush(self):
+        pass
+
+
+# Инициализация перехвата stdout
+if not hasattr(sys, 'stdout_original'):
+    sys.stdout_original = sys.stdout
+    stdout_logger = logging.getLogger('FILTERED_CONSOLE')
+    sys.stdout = FilteredStreamToLogger(stdout_logger, logging.INFO)

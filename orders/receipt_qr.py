@@ -39,9 +39,8 @@ def send_receipt_request(order: WashOrder) -> Optional[str]:
         }
 
         url = f"http://{server_conf.ip_address}/create-check"
-        print(f"[QR] Отправка запроса на чек: {url} с данными: {payload}")
 
-        response = requests.post(url, headers=headers, timeout=5)
+        response = requests.post(url, headers=headers, timeout=15)
         response.raise_for_status()
         data = response.json()
         return data.get("qr")

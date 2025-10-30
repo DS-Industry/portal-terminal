@@ -6,6 +6,15 @@ python-dotenv==1.0.1
 APScheduler==3.10.4
 requests==2.31.0
 whitenoise==6.6.0
+pymodbus==3.5.2
+django-cors-headers>=4.0.0
+
+# Новые зависимости для WebSocket
+channels>=4.0.0
+channels-redis>=4.1.0
+daphne>=4.0.0
+redis>=5.0.0
+asgiref>=3.7.0
 
 # тесты
 pytest==8.1.1
