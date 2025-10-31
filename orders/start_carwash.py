@@ -68,6 +68,7 @@ def _run_wash(order_id: int):
     order.status = WashOrder.Status.PROCESSING
     order.save()
     OrderWebSocketService.send_order_status_update(order)
+    start_dt = timezone.now()
 
     service = None
     try:
@@ -101,7 +102,7 @@ def _run_wash(order_id: int):
             print(f"[WASH] Ожидание завершения мойки...")
             time.sleep(15)
             while True:
-                time.sleep(3)
+                time.sleep(1)
 
                 # Получаем статус мойки
                 wash_status = service.get_wash_status()
@@ -122,10 +123,9 @@ def _run_wash(order_id: int):
                 service.disconnect()
             except Exception:
                 pass
-    
-    
-    start_dt = timezone.now()
+
     # 2) Завершаем заказ
+    end_dt = timezone.now()
     order.status = WashOrder.Status.COMPLETED
     order.queue_position = None
     order.queue_number = None
@@ -133,17 +133,29 @@ def _run_wash(order_id: int):
     OrderWebSocketService.send_order_status_update(order)
     print(f"[WASH] Мойка завершена (order={order.transaction_id}) -> COMPLETED")
 
+    payment_type_to_digit = {
+        WashOrder.PaymentType.CASH: 1,
+        WashOrder.PaymentType.MOBILE_APP: 2,
+        WashOrder.PaymentType.LOYALTY_CARD: 2,
+        WashOrder.PaymentType.BANK_CARD: 3
+    }
+
+    first_digit = payment_type_to_digit.get(order.payment_type, 0)
+
+    id_service = order.program.id_service
+
+    data = first_digit * 100 + id_service
+
     # отправляем событие "Программа (в конце мойки)"
     try:
         TerminalStatus = apps.get_model('orders', 'TerminalStatus')
         ts = TerminalStatus.objects.first()
         device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
 
-        end_dt = timezone.now()
         params = EncodedParams(
             oper=3,
             status=1,
-            data=119,
+            data=data,
             counter=0,
             localId=0,
             begDate=start_dt,
