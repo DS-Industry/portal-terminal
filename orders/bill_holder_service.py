@@ -163,15 +163,15 @@ class BillHolderService:
 
                 # Проверяем, не был ли отменен заказ
                 order.refresh_from_db()
-                if order.status == 'failed':
-                    logger.info("BillHolder: оплата прервана - заказ отменен")
+                if order.status in ('failed', 'canceled'):
+                    logger.info(f"[BILL-HOLDER] оплата прервана - заказ [{order.status}]")
                     return False
 
                 # Ждем перед следующим опросом
                 time.sleep(poll_interval)
 
         except Exception as e:
-            logger.error(f"BillHolder: ошибка во время приема оплаты: {e}")
+            logger.error(f"[BILL-HOLDER] ошибка во время приема оплаты: {e}")
             return False
 
     def process_cash_payment(self, order) -> bool:
