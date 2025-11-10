@@ -334,12 +334,12 @@ class WashOrderCancellationView(APIView):
 
         order.status = WashOrder.Status.CANCELED
         order.save(update_fields=["status"])
-        print(f"[LOG] Заказ отменен {order.id}.")
+        print(f"[LOG] Заказ отменен {order.transaction_id}.")
 
         if order.payment_type == 'bank_card':
             cancellation_success = cancel_bank_card_payment(order)
             if not cancellation_success:
-                print(f"[VENDOTEK] Заказ {order.id} отменен, но ошибка отмены в Vendotek")
+                print(f"[VENDOTEK] Заказ {order.transaction_id} отменен, но ошибка отмены в Vendotek")
 
         return Response(
             {
@@ -370,7 +370,7 @@ class WashOrderStartView(APIView):
         TerminalStatus = apps.get_model('orders', 'TerminalStatus')
 
         _start_payed_without_queue(order, TerminalStatus, 3)
-        print(f"[LOG] Заказ отправлен на запуск {order.id}.")
+        print(f"[LOG] Заказ отправлен на запуск {order.transaction_id}.")
 
         return Response(
             {

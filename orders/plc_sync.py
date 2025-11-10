@@ -28,16 +28,14 @@ def plc_programs_job():
     """
     Фоновая задача для синхронизации программ из PLC.
     """
-    print("[PLC-PROGRAMS] Запуск задачи синхронизации программ.")
     try:
         result = sync_programs_from_plc()
         if result['success']:
-            print(f"[PLC-PROGRAMS] Успешно: создано={result['created']}, обновлено={result['updated']}, ошибок={result['errors']}")
+            print(f"Успешно: создано={result['created']}, обновлено={result['updated']}, ошибок={result['errors']}")
         else:
             print(f"[PLC-PROGRAMS] Ошибка: {result['error']}")
     except Exception as e:
         print(f"[PLC-PROGRAMS] Исключение: {e}")
-    print("[PLC-PROGRAMS] Задача синхронизации программ завершена.")
 
 
 def plc_prices_job():
@@ -57,13 +55,11 @@ def plc_status_job():
     """
     Фоновая задача для синхронизации статуса из PLC.
     """
-    print("[PLC-STATUS] Запуск задачи синхронизации статуса.")
     try:
         # TODO: Реализовать синхронизацию статуса
-        print("[PLC-STATUS] Синхронизация статуса - функция в разработке")
+        print("Синхронизация статуса - функция в разработке")
     except Exception as e:
         print(f"[PLC-STATUS] Исключение: {e}")
-    print("[PLC-STATUS] Задача синхронизации статуса завершена.")
 
 
 _scheduler_instance = None
@@ -77,7 +73,6 @@ def start_plc_scheduler():
     global _scheduler_instance
     
     if not PLC_SYNC_ENABLED:
-        print("[PLC] PLC синхронизация отключена в конфигурации.")
         return
     
     if _scheduler_instance is not None:
@@ -87,7 +82,6 @@ def start_plc_scheduler():
         else:
             print("[PLC] APScheduler был остановлен, создаем новый экземпляр.")
     
-    print("[PLC] Инициализация APScheduler для PLC...")
     _scheduler_instance = BackgroundScheduler()
     
     # Задача синхронизации программ
@@ -99,8 +93,7 @@ def start_plc_scheduler():
             name='PLC Programs Sync Job',
             replace_existing=True,
         )
-        print(f"[PLC] Добавлена задача синхронизации программ: каждые {PLC_PROGRAMS_INTERVAL} мин")
-    
+
     # Задача синхронизации цен
     if PLC_PRICES_INTERVAL > 0:
         _scheduler_instance.add_job(
@@ -110,8 +103,7 @@ def start_plc_scheduler():
             name='PLC Prices Sync Job',
             replace_existing=True,
         )
-        print(f"[PLC] Добавлена задача синхронизации цен: каждые {PLC_PRICES_INTERVAL} мин")
-    
+
     # Задача синхронизации статуса
     if PLC_STATUS_INTERVAL > 0:
         _scheduler_instance.add_job(
@@ -121,10 +113,8 @@ def start_plc_scheduler():
             name='PLC Status Sync Job',
             replace_existing=True,
         )
-        print(f"[PLC] Добавлена задача синхронизации статуса: каждые {PLC_STATUS_INTERVAL} мин")
-    
+
     _scheduler_instance.start()
-    print("[PLC] APScheduler для PLC успешно запущен.")
 
 
 def stop_plc_scheduler():
@@ -134,10 +124,8 @@ def stop_plc_scheduler():
     global _scheduler_instance
     
     if _scheduler_instance is not None:
-        print("[PLC] Остановка APScheduler для PLC...")
         _scheduler_instance.shutdown()
         _scheduler_instance = None
-        print("[PLC] APScheduler для PLC остановлен.")
 
 
 def get_plc_scheduler_status():
