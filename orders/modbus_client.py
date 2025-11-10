@@ -98,7 +98,6 @@ class ModbusClient:
 
         try:
             result = self.client.read_discrete_inputs(address, 1)
-            print(f"[PLC] read_discrete_inputs({address}) -> {result}")
 
             if result.isError():
                 logger.error(f"Error reading discrete input {address}")
