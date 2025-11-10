@@ -42,13 +42,11 @@ def plc_prices_job():
     """
     Фоновая задача для синхронизации цен из PLC.
     """
-    print("[PLC-PRICES] Запуск задачи синхронизации цен.")
     try:
         # TODO: Реализовать синхронизацию цен
-        print("[PLC-PRICES] Синхронизация цен - функция в разработке")
+        print("Синхронизация цен - функция в разработке")
     except Exception as e:
         print(f"[PLC-PRICES] Исключение: {e}")
-    print("[PLC-PRICES] Задача синхронизации цен завершена.")
 
 
 def plc_status_job():

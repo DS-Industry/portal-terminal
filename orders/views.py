@@ -357,6 +357,8 @@ class WashOrderStartView(APIView):
         except WashOrder.DoesNotExist:
             return Response({'error': 'Заказ не найден'}, status=400)
 
+        print(f"[LOG] Пришел запрос на запуск {order.transaction_id}.")
+
         allowed_statuses = [WashOrder.Status.PAYED]
 
         if order.status not in allowed_statuses:
