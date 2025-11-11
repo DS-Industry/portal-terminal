@@ -285,7 +285,8 @@ class WashOrderPaymentView(APIView):
             else:
                 print("[QR] Не удалось получить чек.")
 
-        if is_car_wash_busy():
+        order.refresh_from_db()
+        if order.status != WashOrder.Status.PROCESSING and is_car_wash_busy():
             try:
                 queue_number, queue_position = assign_queue_number_and_position()
                 order.queue_number = queue_number
