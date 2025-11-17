@@ -1,0 +1,85 @@
+x-health: &health
+  interval: 10s
+  timeout: 5s
+  retries: 10
+  start_period: 10s
+
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME}
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+  backend:
+    build: .
+    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    env_file: .env
+    environment:
+      DB_HOST: db
+      DB_PORT: "5432"
+      REDIS_URL: "redis://redis:6379"
+      DEBUG: "${DEBUG:-False}"
+      WEB_CONCURRENCY: "1"
+      LOG_DIR: "/app/logs"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./django_logs:/app/logs
+    healthcheck:
+      # Change to /healthz if that's your path:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/healthz"]
+      <<: *health
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+  frontend:
+    image: cr.yandex/crpbs3dair17u045mok6/terminal:latest
+    environment:
+        # These will be read from environment variables or .env file
+        # You can either:
+        # 1. Create a .env file with these variables
+        # 2. Export them in your shell before running docker-compose
+        # 3. Uncomment and set them directly here
+        VITE_API_BASE_URL: "http://backend:8000"
+        VITE_API_BASE_WS_URL: "ws://backend:8000"
+        VITE_S3_URL: ${VITE_S3_URL:-}
+        VITE_ATTACHMENT_BASE_URL: ${VITE_ATTACHMENT_BASE_URL:-}
+        VITE_REFRESH_INTERVAL: ${VITE_REFRESH_INTERVAL:-3600000}
+    ports:
+      - "3000:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      # adjust if your image has a different health path (or just "/")
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/"]
+      <<: *health
+    restart: unless-stopped
+
+volumes:
+  db_data:
+  redis_data:
