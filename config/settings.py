@@ -225,7 +225,7 @@ class FilteredStreamToLogger:
         self.target_prefixes = [
             '[LOG]', '[LOYALTY]', '[QR]', '[VENDOTEK]',
             '[INIT]', '[PLC-PROGRAMS]', '[PLC-STATUS]',
-            '[PLC]', '[DS]', '[PLC-PRICES]', '[BILL-HOLDER]', '[WASH]', '[WEB-SOCKET]'
+            '[PLC]', '[DS]', '[PLC-PRICES]', '[BILL-HOLDER]', '[WASH]', '[WEB-SOCKET]', '[DEBUG]'
         ]
 
     def write(self, buf):

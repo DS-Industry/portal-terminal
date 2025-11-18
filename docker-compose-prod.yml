@@ -1,4 +1,8 @@
-version: "3.9"
+x-health: &health
+  interval: 10s
+  timeout: 5s
+  retries: 10
+  start_period: 10s
 
 services:
   db:
@@ -20,22 +24,15 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
 
-  web:
-    build: .
+  backend:
+    image: cr.yandex/crp7i0e7br8dlil8465r/terminal-backend:latest
     command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
     env_file: .env
     environment:
       DB_HOST: db
@@ -48,23 +45,31 @@ services:
       - "8000:8000"
     volumes:
       - ./django_logs:/app/logs
-    restart: unless-stopped
-
-  pgadmin:
-    image: dpage/pgadmin4
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@example.com
-      PGADMIN_DEFAULT_PASSWORD: admin123
-    ports:
-      - "8080:80"
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  frontend:
+    image: cr.yandex/crpbs3dair17u045mok6/terminal:latest
+    env_file: .env
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+      VITE_API_BASE_WS_URL: ${VITE_API_BASE_WS_URL:-}
+      VITE_S3_URL: ${VITE_S3_URL:-}
+      VITE_ATTACHMENT_BASE_URL: ${VITE_ATTACHMENT_BASE_URL:-}
+      VITE_REFRESH_INTERVAL: ${VITE_REFRESH_INTERVAL:-3600000}
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost/"]
+      <<: *health
     restart: unless-stopped
 
 volumes:
   db_data:
   redis_data:
-  pgadmin_data:

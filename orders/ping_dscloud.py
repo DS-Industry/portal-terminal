@@ -285,21 +285,35 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
         _mobile_in_progress = False
 
 
-def _start_payed_without_queue(payed_order, TerminalStatus, max_retries: int):
-    expected_sum = int(payed_order.program_price)
-    if payed_order.payment_type == payed_order.PaymentType.LOYALTY_CARD:
-        print(f"[DS-PAYED] Заказ {payed_order.transaction_id} оплачен картой лояльности.")
-        import time as _t;
-        _t.sleep(5)
+def _start_payed_without_queue(order, TerminalStatus, max_retries):
+    print("[DEBUG] START: _start_payed_without_queue")
+
+    expected_sum = int(order.program_price)
+    print("[DEBUG] expected_sum OK")
+
+    if order.payment_type == order.PaymentType.LOYALTY_CARD:
+        print("[DEBUG] Loyalty card detected, sleep 5")
+        time.sleep(5)
+        print("[DEBUG] sleep done")
+
+    print("[DEBUG] Getting TerminalStatus...")
     ts = TerminalStatus.objects.first()
+    print(f"[DEBUG] TerminalStatus = {ts}")
+
     if ts:
+        print("[DEBUG] Setting GVL sum")
         _set_ts_gvl_sum(ts, expected_sum)
+        print("[DEBUG] Set GVL sum OK")
+
+    print("[DEBUG] Calling confirm_sum...")
     if not _confirm_sum(expected_sum, max_retries, "PAYED"):
+        print("[DEBUG] confirm_sum FAILED")
         if ts:
-            _set_ts_gvl_sum(ts, 0)  # как в текущем коде при неуспехе подтверждения
+            _set_ts_gvl_sum(ts, 0)
         return
-    print(f"[DS-PAYED] Старт мойки для заказа {payed_order.transaction_id}")
-    start_car_wash(payed_order)
+
+    print("[DEBUG] confirm_sum OK, starting car wash")
+    start_car_wash(order)
 
 
 def _handover_between_washes(WashOrder, TerminalStatus, max_retries: int):
