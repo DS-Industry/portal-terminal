@@ -1,6 +1,8 @@
 # orders/ucn.py
 import requests
 import logging
+import serial
+import time
 from django.core.exceptions import ObjectDoesNotExist
 from .models import ManageServerConfig, LoyaltySettings, TerminalStatus
 
@@ -11,6 +13,47 @@ class LoyaltyManager:
     """
     Менеджер для работы с картами лояльности
     """
+
+    @classmethod
+    def read_card_ucn(cls, port="COM1", baudrate=9600, timeout=1, max_wait=30):
+        """
+        Чтение карты с терминала.
+        Возвращает корректный УН (ucn_number) как строку.
+        """
+        try:
+            ser = serial.Serial(
+                port=port,
+                baudrate=baudrate,
+                bytesize=serial.EIGHTBITS,
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                timeout=timeout
+            )
+            print("[LOYALTY] Ожидаем карту...")
+            start_time = time.time()
+
+            while True:
+                if time.time() - start_time > max_wait:
+                    print("[LOYALTY] Время ожидания истекло, карта не считана")
+                    return -1
+
+                raw = ser.readline().strip()
+                if not raw:
+                    continue
+                try:
+                    line = raw.decode(errors="ignore")
+                    parts = line.split()
+                    if len(parts) >= 2:
+                        card_raw = parts[-1].replace(",", "")
+                        ucn_number = card_raw.lstrip("0") or "0"
+                        print(f"[CARD] Считана карта: {ucn_number}")
+                        return ucn_number
+                except Exception as e:
+                    print(f"[LOYALTY] Ошибка обработки строки карты: {e}")
+                    return -1
+        except Exception as e:
+            print(f"[LOYALTY] Ошибка подключения к считывателю: {e}")
+            return -1
 
     @classmethod
     def get_active_server(cls):
@@ -199,6 +242,22 @@ class LoyaltyManager:
         """
         Получает баланс с сервера и обновляет локальные настройки
         """
+
+        if ucn_number == -1:
+            cls.update_local_settings(
+                ucn_number=-1,
+                balance=-1,
+                discount=-1,
+                cashback=-1
+            )
+            return {
+                'success': False,
+                'balance': -1,
+                'discount': -1,
+                'cashback': -1,
+                'ucn_number': -1
+            }
+
         print(f"[LOYALTY] Поиск карты в системе лояльности: {ucn_number}")
         result = cls.get_balance(ucn_number)
 

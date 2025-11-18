@@ -8,6 +8,7 @@ requests==2.31.0
 whitenoise==6.6.0
 pymodbus==3.5.2
 django-cors-headers>=4.0.0
+pyserial>=3.5
 
 # Новые зависимости для WebSocket
 channels>=4.0.0
