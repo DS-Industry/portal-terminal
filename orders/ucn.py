@@ -1,7 +1,6 @@
 # orders/ucn.py
 import requests
 import logging
-import serial
 import time
 from django.core.exceptions import ObjectDoesNotExist
 from .models import ManageServerConfig, LoyaltySettings, TerminalStatus
@@ -21,36 +20,11 @@ class LoyaltyManager:
         Возвращает корректный УН (ucn_number) как строку.
         """
         try:
-            ser = serial.Serial(
-                port=port,
-                baudrate=baudrate,
-                bytesize=serial.EIGHTBITS,
-                parity=serial.PARITY_NONE,
-                stopbits=serial.STOPBITS_ONE,
-                timeout=timeout
-            )
             print("[LOYALTY] Ожидаем карту...")
-            start_time = time.time()
-
-            while True:
-                if time.time() - start_time > max_wait:
-                    print("[LOYALTY] Время ожидания истекло, карта не считана")
-                    return -1
-
-                raw = ser.readline().strip()
-                if not raw:
-                    continue
-                try:
-                    line = raw.decode(errors="ignore")
-                    parts = line.split()
-                    if len(parts) >= 2:
-                        card_raw = parts[-1].replace(",", "")
-                        ucn_number = card_raw.lstrip("0") or "0"
-                        print(f"[CARD] Считана карта: {ucn_number}")
-                        return ucn_number
-                except Exception as e:
-                    print(f"[LOYALTY] Ошибка обработки строки карты: {e}")
-                    return -1
+            response = requests.get("http://host.docker.internal:5001/ucn", timeout=35)
+            print(f"[LOYALTY] Получили: {response}")
+            print(f"[LOYALTY] Номер: {response.json().get("ucn_number", -1)}")
+            return response.json().get("ucn_number", -1)
         except Exception as e:
             print(f"[LOYALTY] Ошибка подключения к считывателю: {e}")
             return -1
