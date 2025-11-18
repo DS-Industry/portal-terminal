@@ -35,3 +35,17 @@ class OrderWebSocketService:
                 'code': err
             }
         )
+
+    @staticmethod
+    def send_card_reader(code: int):
+        """Отправка уведомления о создании нового заказа"""
+        channel_layer = get_channel_layer()
+
+        print(f"[WEB-SOCKET] Отправка состояния чтения карты")
+        async_to_sync(channel_layer.group_send)(
+            'order_status_updates',
+            {
+                'type': 'card_reader',
+                'code': code
+            }
+        )

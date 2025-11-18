@@ -42,3 +42,10 @@ class OrderStatusConsumer(AsyncWebsocketConsumer):
             'type': 'error',
             'code': event['code']
         }))
+
+    async def card_reader(self, event):
+        """Обработка создания нового заказа"""
+        await self.send(text_data=json.dumps({
+            'type': 'card_reader',
+            'code': event['code']
+        }))

@@ -403,13 +403,17 @@ class WashOrderDetailView(APIView):
 
 class OpenReaderView(APIView):
     def post(self, request):
-        time.sleep(5)
-        result = LoyaltyManager.get_balance_and_update('794976664919')
+        OrderWebSocketService.send_card_reader(1)
+        ucn_number = LoyaltyManager.read_card_ucn()
+        OrderWebSocketService.send_card_reader(2)
+        result = LoyaltyManager.get_balance_and_update(ucn_number)
+        OrderWebSocketService.send_card_reader(3)
 
         return Response(
             {
                 "message": "Чтение карты завершено",
                 "success": result.get('success', False),
+                "ucn": result.get('ucn_number'),
                 "balance": result.get('balance'),
                 "discount": result.get('discount'),
                 "cashback": result.get('cashback')
