@@ -24,15 +24,14 @@ services:
     command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
-    ports:
-      - "6379:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
+
   backend:
-    build: .
+    image: cr.yandex/crp7i0e7br8dlil8465r/terminal-backend:latest
     command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
     env_file: .env
     environment:
@@ -46,36 +45,27 @@ services:
       - "8000:8000"
     volumes:
       - ./django_logs:/app/logs
-    healthcheck:
-      # Change to /healthz if that's your path:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/healthz"]
-      <<: *health
-    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+    restart: unless-stopped
+
   frontend:
     image: cr.yandex/crpbs3dair17u045mok6/terminal:latest
+    env_file: .env
     environment:
-        # These will be read from environment variables or .env file
-        # You can either:
-        # 1. Create a .env file with these variables
-        # 2. Export them in your shell before running docker-compose
-        # 3. Uncomment and set them directly here
-        VITE_API_BASE_URL: "http://backend:8000"
-        VITE_API_BASE_WS_URL: "ws://backend:8000"
-        VITE_S3_URL: ${VITE_S3_URL:-}
-        VITE_ATTACHMENT_BASE_URL: ${VITE_ATTACHMENT_BASE_URL:-}
-        VITE_REFRESH_INTERVAL: ${VITE_REFRESH_INTERVAL:-3600000}
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+      VITE_API_BASE_WS_URL: ${VITE_API_BASE_WS_URL:-}
+      VITE_S3_URL: ${VITE_S3_URL:-}
+      VITE_ATTACHMENT_BASE_URL: ${VITE_ATTACHMENT_BASE_URL:-}
+      VITE_REFRESH_INTERVAL: ${VITE_REFRESH_INTERVAL:-3600000}
     ports:
       - "3000:80"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     healthcheck:
-      # adjust if your image has a different health path (or just "/")
       test: ["CMD", "wget", "--spider", "-q", "http://localhost/"]
       <<: *health
     restart: unless-stopped

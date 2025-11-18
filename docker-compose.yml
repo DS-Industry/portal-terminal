@@ -50,6 +50,21 @@ services:
       - ./django_logs:/app/logs
     restart: unless-stopped
 
+  pgadmin:
+    image: dpage/pgadmin4
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@example.com
+      PGADMIN_DEFAULT_PASSWORD: admin123
+    ports:
+      - "8080:80"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    restart: unless-stopped
+
 volumes:
   db_data:
   redis_data:
+  pgadmin_data:
