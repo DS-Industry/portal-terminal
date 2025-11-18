@@ -10,6 +10,7 @@ class OrderWebSocketService:
         """Отправка обновления статуса заказа через WebSocket"""
         channel_layer = get_channel_layer()
 
+        print(f"[WEB-SOCKET] Отправка изменения статуса для заказа: {order.transaction_id}")
         async_to_sync(channel_layer.group_send)(
             'order_status_updates',
             {
@@ -26,6 +27,7 @@ class OrderWebSocketService:
         """Отправка уведомления о создании нового заказа"""
         channel_layer = get_channel_layer()
 
+        print(f"[WEB-SOCKET] Отправка ошибки")
         async_to_sync(channel_layer.group_send)(
             'order_status_updates',
             {
