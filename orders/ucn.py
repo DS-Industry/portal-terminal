@@ -234,10 +234,11 @@ class LoyaltyManager:
 
         print(f"[LOYALTY] Поиск карты в системе лояльности: {ucn_number}")
         result = cls.get_balance(ucn_number)
+        result['ucn_number'] = ucn_number
 
         if result['success']:
             cls.update_local_settings(
-                ucn_number=ucn_number,
+                ucn_number=result['ucn_number'],
                 balance=result['balance'],
                 discount=result['discount'],
                 cashback=result['cashback']

@@ -291,11 +291,6 @@ def _start_payed_without_queue(order, TerminalStatus, max_retries):
     expected_sum = int(order.program_price)
     print("[DEBUG] expected_sum OK")
 
-    if order.payment_type == order.PaymentType.LOYALTY_CARD:
-        print("[DEBUG] Loyalty card detected, sleep 5")
-        time.sleep(5)
-        print("[DEBUG] sleep done")
-
     print("[DEBUG] Getting TerminalStatus...")
     ts = TerminalStatus.objects.first()
     print(f"[DEBUG] TerminalStatus = {ts}")
