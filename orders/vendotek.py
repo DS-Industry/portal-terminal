@@ -1,5 +1,6 @@
 import socket
 import struct
+import time
 from typing import Optional
 from dataclasses import dataclass
 
@@ -253,6 +254,8 @@ class VendotekClient:
         try:
 
             approved = amount
+
+            time.sleep(5)
 
             if approved != amount:
                 self.send_idl()
