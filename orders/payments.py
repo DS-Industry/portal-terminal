@@ -30,10 +30,6 @@ def bank_card_payment(order):
         print("[VENDOTEK] Не удалось получить конфигурацию терминала")
         return False, "Не удалось получить конфигурацию терминала"
 
-    if not client.connect():
-        print("[VENDOTEK] Ошибка подключения к терминалу")
-        return False, "Ошибка подключения к терминалу"
-
     try:
         amount = int(order.program_price)
 
@@ -50,9 +46,6 @@ def bank_card_payment(order):
         error_msg = f"Неожиданная ошибка при обработке оплаты картой: {e}"
         print(f"[VENDOTEK] {error_msg}")
         return False, error_msg
-
-    finally:
-        client.disconnect()
 
 
 def cancel_bank_card_payment(order) -> bool:
