@@ -77,7 +77,7 @@ def _run_wash(order_id: int):
         if started:
 
             print(f"[WASH] Ожидание завершения мойки...")
-            time.sleep(15)
+            time.sleep(90)
 
     except Exception as e:
         print(f"[WASH] Ошибка при работе с PLC: {e}")
