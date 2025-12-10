@@ -16,7 +16,7 @@ FUNCTIONS = {
     4: "Ополаскивание",
     5: "Осмос",
     6: "Воск",
-    7: "Сушка"
+    7: "Обдув"
 }
 
 # Register addresses for programs
