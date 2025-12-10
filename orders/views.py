@@ -334,6 +334,7 @@ class WashOrderCancellationView(APIView):
 
         order.status = WashOrder.Status.CANCELED
         order.save(update_fields=["status"])
+        OrderWebSocketService.send_order_status_update(order)
         print(f"[LOG] Заказ отменен {order.transaction_id}.")
 
         return Response(
