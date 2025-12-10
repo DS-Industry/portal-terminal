@@ -370,6 +370,15 @@ class WashOrderStartView(APIView):
                 status=400
             )
 
+        if order.queue_number:
+            print(f"[LOG] У заказа {order.transaction_id} есть номер в очереди: {order.queue_number}.")
+            return Response(
+                {
+                     "message": "Заказ стоит в очереди."
+                },
+                status=200
+            )
+
         TerminalStatus = apps.get_model('orders', 'TerminalStatus')
 
         _start_payed_without_queue(order, TerminalStatus, 3)
