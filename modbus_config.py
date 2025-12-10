@@ -111,7 +111,7 @@ REGISTERS = {
 
 # Настройки опроса
 POLLING_INTERVALS = {
-    'prices': 60,
-    'programs': 60,
-    'status': 60
+    'prices': 1,
+    'programs': 1,
+    'status': 1
 }
