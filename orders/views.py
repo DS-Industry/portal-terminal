@@ -278,7 +278,9 @@ class WashOrderPaymentView(APIView):
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
 
         if payment_type in ("cash", "bank_card"):
-            qr_code = send_receipt_request(order)
+            time.sleep(5)
+
+            qr_code = 'test-qr'
             if qr_code:
                 order.qr_code = qr_code
                 print(f"[QR] Чек успешно получен: {qr_code}")
