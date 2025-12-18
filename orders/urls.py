@@ -12,7 +12,8 @@ from .views import (
     UcnCheckView,
     OpenReaderView,
     MobileQrView,
-    WashOrderStartView
+    WashOrderStartView,
+    TerminalDataView
 )
 
 router = DefaultRouter()
@@ -20,6 +21,7 @@ router.register(r'programs', ProgramViewSet, basename='program')
 
 urlpatterns = router.urls + [
     path('wash-programs/', ProgramListView.as_view(), name='program-list'),
+    path('terminal-data/', TerminalDataView.as_view(), name='terminal-data'),
     path('pay/', WashOrderPaymentView.as_view(), name='washorder-pay'),
     path('lty-check/', LtyCheckView.as_view(), name='lty-check'),
     path('ucn-check/', UcnCheckView.as_view(), name='ucn-check'),
