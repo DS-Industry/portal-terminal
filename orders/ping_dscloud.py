@@ -306,15 +306,6 @@ def _start_payed_without_queue(order, TerminalStatus, max_retries):
     print("[DEBUG] Calling confirm_sum...")
     if not _confirm_sum(expected_sum, max_retries, "PAYED"):
         print("[DEBUG] confirm_sum FAILED")
-        order.status = WashOrder.Status.FAILED
-        order.queue_position = None
-        order.queue_number = None
-        order.save()
-        OrderWebSocketService.send_order_status_update(order)
-        OrderWebSocketService.send_error(1004)
-        if ts:
-            _set_ts_gvl_sum(ts, 0)
-        return
 
     print("[DEBUG] confirm_sum OK, starting car wash")
     start_car_wash(order)
