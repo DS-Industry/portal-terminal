@@ -61,6 +61,16 @@ class ProgramListView(APIView):
         return Response(serializer.data)
 
 
+class TerminalDataView(APIView):
+    """
+    Эндпоинт получения флага лояльности
+    """
+
+    def get(self, request):
+        terminal_status = TerminalStatus.objects.get()
+        return Response({'car_wash_id': terminal_status.car_wash_identifier, 'device_id': terminal_status.identifier})
+
+
 class LtyCheckView(APIView):
     """
     Эндпоинт получения флага лояльности
