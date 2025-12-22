@@ -61,6 +61,16 @@ class ProgramListView(APIView):
         return Response(serializer.data)
 
 
+class TerminalDataView(APIView):
+    """
+    Эндпоинт получения флага лояльности
+    """
+
+    def get(self, request):
+        terminal_status = TerminalStatus.objects.get()
+        return Response({'car_wash_id': terminal_status.car_wash_identifier, 'device_id': terminal_status.identifier})
+
+
 class LtyCheckView(APIView):
     """
     Эндпоинт получения флага лояльности
@@ -296,13 +306,9 @@ class WashOrderPaymentView(APIView):
                 )
             except ValueError as e:
                 return Response({"error": str(e)}, status=400)
-        else:
-            print(
-                f"[LOG] Мойка свободна. Заказ {order.transaction_id} будет запускаться немедленно."
-            )
 
         queue_number_to_return = order.queue_number
-        order.save()
+        order.save(update_fields=['qr_code', 'queue_number', 'queue_position'])
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: изменение в qr-code")
 
         return Response(
@@ -325,6 +331,7 @@ class WashOrderCancellationView(APIView):
         allowed_statuses = [WashOrder.Status.CREATED, WashOrder.Status.WAITING_PAYMENT]
 
         if order.status not in allowed_statuses:
+            print(f"[LOG] Ошибка отмены заказа по статусу: {order.transaction_id}.")
             return Response(
                 {
                     'error': f'Невозможно отменить заказ со статусом "{order.get_status_display()}"'

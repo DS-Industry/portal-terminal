@@ -66,7 +66,7 @@ def _run_wash(order_id: int):
     # Переводим в PROCESSING
     print(f"[WASH] Старт мойки (order={order.transaction_id})")
     order.status = WashOrder.Status.PROCESSING
-    order.save()
+    order.save(update_fields=["status"])
     OrderWebSocketService.send_order_status_update(order)
     start_dt = timezone.now()
 
@@ -129,7 +129,7 @@ def _run_wash(order_id: int):
     order.status = WashOrder.Status.COMPLETED
     order.queue_position = None
     order.queue_number = None
-    order.save()
+    order.save(update_fields=["status", "queue_position", "queue_number"])
     OrderWebSocketService.send_order_status_update(order)
     print(f"[WASH] Мойка завершена (order={order.transaction_id}) -> COMPLETED")
 

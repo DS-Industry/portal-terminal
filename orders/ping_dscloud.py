@@ -17,6 +17,9 @@ from .websocket_service import OrderWebSocketService
 
 from .encoder import EncodedParams
 
+from .models import (
+    WashOrder,
+)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env_file = BASE_DIR / ".env"
@@ -154,13 +157,13 @@ def _confirm_sum(expected: int, max_retries: int = 3, label: str = "CONFIRM"):
     while retries < max_retries:
         resp = send_data_to_dscloud()
         if resp and resp.get('GVLSum') == str(expected):
-            print(f"[DS-{label}] Подтверждение суммы {expected} от DScloud получено.")
+            print(f"[DEBUG] Подтверждение суммы {expected} от DScloud получено.")
             return True
-        print(f"[DS-{label}] Ожидание подтверждения {expected}... (Попытка {retries + 1}/{max_retries})")
+        print(f"[DEBUG] Ожидание подтверждения {expected}... (Попытка {retries + 1}/{max_retries})")
         if resp:
-            print(f"[DS-{label}] Ответ: {resp}")
+            print(f"[DEBUG] Ответ: {resp}")
         retries += 1
-    print(f"[DS-{label}] ОШИБКА: Нет подтверждения суммы {expected} после {max_retries} попыток.")
+    print(f"[DEBUG] ОШИБКА: Нет подтверждения суммы {expected} после {max_retries} попыток.")
     return False
 
 
@@ -303,9 +306,6 @@ def _start_payed_without_queue(order, TerminalStatus, max_retries):
     print("[DEBUG] Calling confirm_sum...")
     if not _confirm_sum(expected_sum, max_retries, "PAYED"):
         print("[DEBUG] confirm_sum FAILED")
-        if ts:
-            _set_ts_gvl_sum(ts, 0)
-        return
 
     print("[DEBUG] confirm_sum OK, starting car wash")
     start_car_wash(order)
