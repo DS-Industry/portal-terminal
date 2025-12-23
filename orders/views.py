@@ -283,18 +283,6 @@ class WashOrderPaymentView(APIView):
         order.status = WashOrder.Status.PAYED
         order.amount_sum = int(order.program_price)
 
-        order.save()
-        OrderWebSocketService.send_order_status_update(order)
-        print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
-
-        if payment_type in ("cash", "bank_card"):
-            qr_code = send_receipt_request(order)
-            if qr_code:
-                order.qr_code = qr_code
-                print(f"[QR] Чек успешно получен: {qr_code}")
-            else:
-                print("[QR] Не удалось получить чек.")
-
         if is_car_wash_busy():
             try:
                 queue_number, queue_position = assign_queue_number_and_position()
@@ -307,8 +295,20 @@ class WashOrderPaymentView(APIView):
             except ValueError as e:
                 return Response({"error": str(e)}, status=400)
 
+        order.save()
+        OrderWebSocketService.send_order_status_update(order)
+        print(f"[LOG] Статус заказа {order.transaction_id} обновлён: payed")
         queue_number_to_return = order.queue_number
-        order.save(update_fields=['qr_code', 'queue_number', 'queue_position'])
+
+        if payment_type in ("cash", "bank_card"):
+            qr_code = send_receipt_request(order)
+            if qr_code:
+                order.qr_code = qr_code
+                print(f"[QR] Чек успешно получен: {qr_code}")
+            else:
+                print("[QR] Не удалось получить чек.")
+
+        order.save(update_fields=['qr_code'])
         print(f"[LOG] Статус заказа {order.transaction_id} обновлён: изменение в qr-code")
 
         return Response(
