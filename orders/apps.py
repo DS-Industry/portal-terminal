@@ -6,6 +6,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+
 class OrdersConfig(AppConfig):
     default_auto_field = 'django.db.models.BigAutoField'
     name = 'orders'
@@ -15,7 +16,6 @@ class OrdersConfig(AppConfig):
         from django.db.models.signals import post_migrate
         post_migrate.connect(handle_processing_orders_on_startup_signal, sender=self)
         print("[INIT] Сигнал post_migrate подключен.")
-
 
         import sys
         running_migrations = 'migrate' in sys.argv
@@ -28,7 +28,7 @@ class OrdersConfig(AppConfig):
             timer.start()
             print("[INIT-APP] Запланирован отложенный запуск задач инициализации.")
         else:
-             print("[INIT-APP] Отложенные задачи инициализации не запускаются во время миграций или тестов.")
+            print("[INIT-APP] Отложенные задачи инициализации не запускаются во время миграций или тестов.")
 
     def _delayed_startup_tasks(self):
         """
@@ -37,7 +37,7 @@ class OrdersConfig(AppConfig):
         """
         try:
             print("[INIT-APP-DELAYED] Начало выполнения отложенных задач инициализации...")
-            
+
             print("[INIT-APP-DELAYED] Вызов обработчика заказов PROCESSING...")
             from .startup import handle_processing_orders_on_startup
             handle_processing_orders_on_startup()
@@ -47,16 +47,20 @@ class OrdersConfig(AppConfig):
             from .ping_dscloud import start_dscloud_scheduler
             start_dscloud_scheduler()
             print("[DS-DELAYED] Запуск APScheduler завершен.")
-            
+
             print("[PLC-DELAYED] Попытка запуска PLC планировщика...")
             from .plc_sync import start_plc_scheduler
             start_plc_scheduler()
             print("[PLC-DELAYED] Запуск PLC планировщика завершен.")
-            
+
+            from .led_board import LedBoardManager
+            LedBoardManager.set_free()
+
             print("[INIT-APP-DELAYED] Все отложенные задачи инициализации завершены.")
-            
+
         except Exception as e:
             logger.error(f"[INIT-APP-DELAYED] Критическая ошибка в отложенных задачах: {e}", exc_info=True)
+
 
 def handle_processing_orders_on_startup_signal(sender, **kwargs):
     """

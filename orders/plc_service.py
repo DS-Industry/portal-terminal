@@ -7,7 +7,7 @@ import logging
 from typing import Dict, List, Optional
 from django.db import transaction
 from .modbus_client import ModbusClient
-from .models import Program
+from orders.models.program import Program
 from pathlib import Path
 
 logger = logging.getLogger(__name__)

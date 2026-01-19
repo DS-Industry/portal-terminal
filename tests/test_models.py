@@ -4,13 +4,13 @@ from decimal import Decimal
 import pytest
 from django.core.exceptions import ValidationError
 
-from orders.models import (
+from orders.models.models import (
     Program,
-    TerminalStatus,
     WashOrder,
     WashSettings,
     ReceiptServerConfig,
 )
+from orders.models.terminal_status import (TerminalStatus)
 
 
 @pytest.mark.django_db

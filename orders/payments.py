@@ -1,15 +1,11 @@
 import os
 import requests
-import time
 
 from pathlib import Path
 
 from rest_framework.response import Response
 
-from .models import (
-    TerminalStatus,
-    WashOrder,
-)
+from orders.models.terminal_status import TerminalStatus
 
 from .vendotek import VendotekClient
 from .bill_holder_service import payment_process
@@ -43,6 +39,9 @@ def bank_card_payment(order):
         if not response.success:
             print(f"[VENDOTEK] Ошибка оплаты: {response.error_message}")
             return False, response.error_message
+
+        order.amount_sum = int(order.program_price)
+        order.save(update_fields=['amount_sum'])
 
         return True, ""
 
@@ -115,9 +114,7 @@ def loyalty_card_payment(order, ucn):
     Выполняет запрос на списание средств.
     """
     try:
-        terminal = TerminalStatus.objects.first()
-        if not terminal:
-            raise Exception("TerminalStatus не найден")
+        terminal = TerminalStatus.get_terminal()
 
         dev_id = terminal.identifier
         sum_amount = int(order.program_price)
@@ -165,15 +162,14 @@ def mobile_app_payment(order):
         Response: DRF Response с QR-кодом или ошибкой.
     """
 
-    order.status = WashOrder.Status.MOBILE_QR_REQUEST
-    terminal_status = TerminalStatus.objects.first()
-    if not terminal_status or not terminal_status.mobile_app_qr_code:
+    terminal = TerminalStatus.get_terminal()
+    if not terminal.mobile_app_qr_code:
         error_msg = "QR-код для старого мобильного приложения не настроен в TerminalStatus."
         print(f"[MOBILE-PAYMENT-QR] ОШИБКА: {error_msg}")
         return Response({'error': error_msg}, status=500)
 
-    qr_code_string = terminal_status.mobile_app_qr_code
-    order.save()
+    qr_code_string = terminal.mobile_app_qr_code
+    order.mark_mobile_qr_request()
     print(f"[MOBILE-PAYMENT-QR] Статус заказа {order.transaction_id} обновлён на MOBILE_QR_REQUEST. QR-код получен.")
 
     return Response({

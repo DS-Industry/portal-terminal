@@ -1,7 +1,7 @@
 import pytest
 
 from orders import receipt_qr
-from orders.models import ReceiptServerConfig, Program, WashOrder
+from orders.models.models import ReceiptServerConfig, Program, WashOrder
 
 
 @pytest.mark.django_db

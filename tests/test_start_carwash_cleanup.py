@@ -1,5 +1,5 @@
 import pytest
-from orders.models import Program, WashOrder
+from orders.models.models import Program, WashOrder
 from orders import start_carwash as sc
 
 @pytest.mark.django_db

@@ -4,17 +4,11 @@ import time
 import os
 from pathlib import Path
 from .websocket_service import OrderWebSocketService
-
 from .modbus_client import ModbusClient
-
 logger = logging.getLogger(__name__)
 from .encoder import EncodedParams
 from django.utils import timezone
-
-from .models import (
-    WashOrder,
-    TerminalStatus,
-)
+from orders.models.terminal_status import TerminalStatus
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env_file = BASE_DIR / ".env"
@@ -115,8 +109,7 @@ class BillHolderService:
                             f"Заказ {order.id} отменён."
                         )
 
-                        order.status = WashOrder.Status.FAILED
-                        order.save(update_fields=["status"])
+                        order.mark_failed()
                         OrderWebSocketService.send_error(1001)
                         return False
 
@@ -163,8 +156,8 @@ class BillHolderService:
                         f"[BILL-HOLDER] внесено {cash_nominal}. Текущая сумма: {order.amount_sum}/{order.program_price}")
 
                     try:
-                        ts = TerminalStatus.objects.first()
-                        device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
+                        terminal = TerminalStatus.get_terminal()
+                        device_id = int(terminal.identifier)
                         now_dt = timezone.now()
 
                         params = EncodedParams(

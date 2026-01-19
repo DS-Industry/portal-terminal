@@ -1,6 +1,6 @@
 import pytest
 from django.urls import reverse
-from orders.models import Program
+from orders.models.models import Program
 
 @pytest.mark.django_db
 def test_pay_missing_transaction_id_returns_400(api_client, program_factory):

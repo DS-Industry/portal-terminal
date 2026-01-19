@@ -1,9 +1,10 @@
 # orders/ucn.py
 import requests
 import logging
-import time
-from django.core.exceptions import ObjectDoesNotExist
-from .models import ManageServerConfig, LoyaltySettings, TerminalStatus
+from orders.models.loyalty_settings import LoyaltySettings
+from orders.models.terminal_status import TerminalStatus
+from orders.models.manage_server import ManageServerConfig
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +38,7 @@ class LoyaltyManager:
             ManageServerConfig or None
         """
         try:
-            return ManageServerConfig.objects.filter(loyalty_status=True).first()
+            return ManageServerConfig.get_loyalty()
         except Exception as e:
             print(f"[LOYALTY] Ошибка при получении активного сервера лояльности: {e}")
             return None
@@ -79,10 +80,7 @@ class LoyaltyManager:
         Логика для серверов типа CW
         """
         try:
-            terminal = TerminalStatus.objects.first()
-            if not terminal:
-                raise Exception("TerminalStatus не найден")
-
+            terminal = TerminalStatus.get_terminal()
             dev_id = terminal.identifier
 
             url = f"http://{server.ip_address}:{server.port}/cwash/api/service/card_balance"
@@ -131,10 +129,7 @@ class LoyaltyManager:
         Логика для серверов типа ONVI
         """
         try:
-            terminal = TerminalStatus.objects.first()
-            if not terminal:
-                raise Exception("TerminalStatus не найден")
-
+            terminal = TerminalStatus.get_terminal()
             dev_id = terminal.identifier
 
             url = f"http://{server.ip_address}:{server.port}/device/loyalty/card-balance"

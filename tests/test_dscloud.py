@@ -1,6 +1,7 @@
 import json
 import pytest
-from orders.models import Program, WashOrder, TerminalStatus
+from orders.models.models import Program, WashOrder
+from orders.models.terminal_status import (TerminalStatus)
 import orders.ping_dscloud as pds
 
 
@@ -138,14 +139,14 @@ def test_send_data_to_dscloud_headers_and_json(monkeypatch, terminal_status):
     send_data_to_dscloud должен собрать строку data из GVL-полей и вернуть JSON, который отдал сервер.
     """
     # настроим поля терминала
-    ts = TerminalStatus.objects.first()
-    ts.gvl_sum = 0
-    ts.gvl_err = 1
-    ts.gvl_time = 2
-    ts.gvl_cardnum = 3
-    ts.gvl_cardsum = 4
-    ts.gvl_source = 5
-    ts.save()
+    terminal = TerminalStatus.get_terminal()
+    terminal.gvl_sum = 0
+    terminal.gvl_err = 1
+    terminal.gvl_time = 2
+    terminal.gvl_cardnum = 3
+    terminal.gvl_cardsum = 4
+    terminal.gvl_source = 5
+    terminal.save()
 
     expected_json = {"GVLSum": "0"}
 

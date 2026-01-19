@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
-from .models import Program, WashOrder
+from orders.models.program import Program
+from orders.models.wash_order import WashOrder
 
 
 class ProgramSerializer(serializers.ModelSerializer):
@@ -13,33 +14,22 @@ class ProgramSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'price', 'lty_price', 'description', 'duration', 'functions', 'promo_value']
 
 
-class WashOrderCreateSerializer(serializers.Serializer):
-    """
-    Сериализатор для создания заказа на мойку.
-    Ожидает:
-        - program_id (int)
-        - ucn (str, необязательное)
-    """
-    program_id = serializers.IntegerField()
-    ucn = serializers.CharField(required=False, allow_blank=True)
-
-
 class WashOrderPaymentSerializer(serializers.Serializer):
-    """
-    Сериализатор для обработки типа оплаты.
 
-    Ожидает:
-        - "program_id": 1,
-        - payment_type (str): Тип оплаты
-    """
     program_id = serializers.IntegerField()
-    payment_type = serializers.ChoiceField(choices=[
-        ('cash', 'cash'),
-        ('bank_card', 'bank_card'),
-        ('mobile_app', 'mobile_app'),
-        ('loyalty_card', 'loyalty_card'),
-    ])
+    payment_type = serializers.ChoiceField(choices=WashOrder.PaymentType.choices)
     ucn = serializers.CharField(required=False, allow_blank=True)
+
+    def validate_program_id(self, value):
+        try:
+            program = Program.objects.get(pk=value)
+        except Program.DoesNotExist:
+            raise serializers.ValidationError("Программа не найдена")
+
+        if not program.is_available():
+            raise serializers.ValidationError("Программа недоступна")
+
+        return program
 
 
 class WashOrderDetailSerializer(serializers.ModelSerializer):

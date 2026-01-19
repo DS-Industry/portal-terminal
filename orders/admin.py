@@ -2,15 +2,13 @@ from django.contrib import admin
 from django.utils.dateformat import format as date_format
 from django.utils import timezone
 
-from .models import (
-    Program,
-    WashOrder,
-    TerminalStatus,
-    WashSettings,
-    ReceiptServerConfig,
-    VendotekServerConfig,
-    ManageServerConfig
-)
+from orders.models.terminal_status import TerminalStatus
+from orders.models.wash_order import WashOrder
+from orders.models.program import Program
+from orders.models.wash_settings import WashSettings
+from orders.models.receipt_server import ReceiptServerConfig
+from orders.models.vendotek_server import VendotekServerConfig
+from orders.models.manage_server import ManageServerConfig
 
 
 # Ограничение на создание только одной записи
@@ -24,10 +22,14 @@ class ProgramAdmin(admin.ModelAdmin):
     """Настройка отображения таблицы программ мойки в админке.
     Показываем ID, название, цену, описание, время выполнения, id_service и функции.
     """
-    list_display = ('id', 'name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions', 'plc_start_write_address', 'is_visibility')
+    list_display = (
+    'id', 'name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions',
+    'plc_start_write_address', 'is_visibility')
     ordering = ('id',)
-    fields = ('name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions', 'plc_start_write_address', 'is_visibility')
-    list_editable = ('name', 'plc_start_write_address', 'is_visibility')
+    fields = ('name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions',
+              'plc_start_write_address', 'is_visibility')
+    list_editable = ('name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions',
+                     'plc_start_write_address', 'is_visibility')
 
 
 @admin.register(WashOrder)
@@ -53,39 +55,46 @@ class WashOrderAdmin(admin.ModelAdmin):
     list_filter = ('status', 'program', 'payment_type', 'is_mobile_payment')
     search_fields = ('transaction_id', 'queue_number', 'ucn')
 
+
 @admin.register(TerminalStatus)
 class TerminalStatusAdmin(SingletonAdmin):
     """Настройка отображения состояния терминалов в админке.
     Показываем ID, identifier, имя, номер бокса, car_wash_identifier и все технические поля.
     """
     list_display = (
-        'id', 'identifier', 'car_wash_identifier', 'name', 'loyalty_status', 'bay_number',
+        'id', 'identifier', 'car_wash_identifier', 'name', 'loyalty_status', 'led_board', 'queue_availability',
+        'bay_number',
         'gvl_cardnum', 'gvl_cardsum', 'gvl_sum',
         'gvl_err', 'gvl_time', 'gvl_source',
         'mobile_app_qr_code',
     )
     fields = (
-        'identifier', 'name', 'loyalty_status', 'bay_number', 'car_wash_identifier',
+        'identifier', 'name', 'loyalty_status', 'led_board', 'queue_availability', 'bay_number', 'car_wash_identifier',
         'gvl_cardnum', 'gvl_cardsum', 'gvl_sum',
         'gvl_err', 'gvl_time', 'gvl_source',
         'mobile_app_qr_code',
     )
-    list_editable = ('identifier', 'car_wash_identifier', 'name', 'loyalty_status', 'bay_number', 'mobile_app_qr_code')
+    list_editable = (
+    'identifier', 'car_wash_identifier', 'name', 'loyalty_status', 'led_board', 'queue_availability', 'bay_number',
+    'mobile_app_qr_code')
 
 
 @admin.register(WashSettings)
 class WashSettingsAdmin(SingletonAdmin):
-    list_display = ('delay_between_washes',)
+    list_display = ('id', 'delay_between_washes',)
+    list_editable = ('delay_between_washes',)
 
 
 @admin.register(ReceiptServerConfig)
 class ReceiptServerConfigAdmin(SingletonAdmin):
-    list_display = ('ip_address',)
+    list_display = ('id', 'ip_address',)
+    list_editable = ('ip_address',)
 
 
 @admin.register(VendotekServerConfig)
 class VendotekServerConfigAdmin(SingletonAdmin):
-    list_display = ('ip_address', 'port',)
+    list_display = ('id', 'ip_address', 'port',)
+    list_editable = ('ip_address', 'port')
 
 
 @admin.register(ManageServerConfig)

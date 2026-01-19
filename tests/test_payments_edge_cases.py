@@ -1,6 +1,6 @@
 import pytest
 from django.urls import reverse
-from orders.models import Program, WashOrder
+from orders.models.models import Program, WashOrder
 from orders import payments as payments_module
 
 

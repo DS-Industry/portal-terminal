@@ -7,6 +7,7 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from .websocket_service import OrderWebSocketService
+from .led_board import LedBoardManager
 
 from django.apps import apps
 from django.utils import timezone
@@ -65,9 +66,7 @@ def _run_wash(order_id: int):
 
     # Переводим в PROCESSING
     print(f"[WASH] Старт мойки (order={order.transaction_id})")
-    order.status = WashOrder.Status.PROCESSING
-    order.save(update_fields=["status"])
-    OrderWebSocketService.send_order_status_update(order)
+    order.mark_processing()
     start_dt = timezone.now()
 
     service = None
@@ -94,9 +93,13 @@ def _run_wash(order_id: int):
                 if wash_status:  # True → оборудование реально запустилось
                     print("[WASH] Оборудование подтвердило запуск — снимаем флаг...")
                     service.end_program(order.program)  # ✅ снимаем флаг сразу
+                    LedBoardManager.set_busy()
                     break
             else:
                 print("[WASH] Оборудование так и не подтвердило запуск")
+                order.mark_failed()
+                OrderWebSocketService.send_error(1004)
+                service.end_program(order.program)
                 return
 
             print(f"[WASH] Ожидание завершения мойки...")
@@ -113,6 +116,7 @@ def _run_wash(order_id: int):
 
                 if not wash_status:  # False - мойка завершена
                     print(f"[WASH] Мойка завершена по статусу PLC")
+                    LedBoardManager.set_free()
                     break
 
     except Exception as e:
@@ -175,10 +179,7 @@ def _run_wash(order_id: int):
         pause_sec = 5
 
     time.sleep(pause_sec)
-
-    # 4) Запуск следующего из очереди
-    from .queue_option import try_run_next_car_wash
-    try_run_next_car_wash()
+    WashOrder.try_run_next_car_wash()
 
 
 def start_car_wash(order):
