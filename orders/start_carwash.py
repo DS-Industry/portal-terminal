@@ -7,7 +7,7 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from .websocket_service import OrderWebSocketService
-from .led_board import LedBoardManager
+from .led_board_servise import LedBoardService
 
 from django.apps import apps
 from django.utils import timezone
@@ -96,7 +96,7 @@ def _run_wash(order_id: int):
                 if wash_status:  # True → оборудование реально запустилось
                     print("[WASH] Оборудование подтвердило запуск — снимаем флаг...")
                     service.end_program(order.program)  # ✅ снимаем флаг сразу
-                    LedBoardManager.set_busy()
+                    LedBoardService.set_busy(terminal)
                     break
             else:
                 print("[WASH] Оборудование так и не подтвердило запуск")
@@ -119,7 +119,7 @@ def _run_wash(order_id: int):
 
                 if not wash_status:  # False - мойка завершена
                     print(f"[WASH] Мойка завершена по статусу PLC")
-                    LedBoardManager.set_free()
+                    LedBoardService.set_free(terminal)
                     break
 
     except Exception as e:

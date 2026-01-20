@@ -53,8 +53,10 @@ class OrdersConfig(AppConfig):
             start_plc_scheduler()
             print("[PLC-DELAYED] Запуск PLC планировщика завершен.")
 
-            from .led_board import LedBoardManager
-            LedBoardManager.set_free()
+            from .led_board_servise import LedBoardService
+            from orders.models.terminal_status import TerminalStatus
+            terminal = TerminalStatus.get_terminal()
+            LedBoardService.set_free(terminal)
 
             print("[INIT-APP-DELAYED] Все отложенные задачи инициализации завершены.")
 
