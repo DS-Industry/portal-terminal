@@ -156,11 +156,14 @@ class WashOrder(models.Model):
             order.save(update_fields=["queue_position"])
 
     @classmethod
-    def try_run_next_car_wash(cls):
+    def try_run_next_car_wash(cls, terminal):
         """
         Если мойка свободна и есть заказ с позицией 0 и статусом PAYED — запускает мойку.
         """
         if cls.is_car_wash_busy():
+            return
+
+        if not terminal.has_queue_availability():
             return
 
         cls.shift_queue_positions_after_start()

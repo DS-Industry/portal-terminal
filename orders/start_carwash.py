@@ -14,6 +14,7 @@ from django.utils import timezone
 
 from .encoder import EncodedParams
 from .plc_service import PLCService
+from .models.terminal_status import TerminalStatus
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env_file = BASE_DIR / ".env"
@@ -40,7 +41,8 @@ _scheduler: Optional[BackgroundScheduler] = None
 def _get_models():
     WashOrder = apps.get_model('orders', 'WashOrder')
     WashSettings = apps.get_model('orders', 'WashSettings')
-    return WashOrder, WashSettings
+    TerminalStatus = apps.get_model('orders', 'TerminalStatus')
+    return WashOrder, WashSettings, TerminalStatus
 
 
 def _ensure_scheduler():
@@ -57,7 +59,8 @@ def _run_wash(order_id: int):
     - Длительность мойки фиксированная: 60 сек (заглушка).
     - Пауза между мойками: WashSettings.delay_between_washes (сек), иначе 5 сек по умолчанию.
     """
-    WashOrder, WashSettings = _get_models()
+    WashOrder, WashSettings, TerminalStatus = _get_models()
+    terminal = TerminalStatus.get_terminal()
     try:
         order = WashOrder.objects.get(id=order_id)
     except WashOrder.DoesNotExist:
@@ -152,9 +155,7 @@ def _run_wash(order_id: int):
 
     # отправляем событие "Программа (в конце мойки)"
     try:
-        TerminalStatus = apps.get_model('orders', 'TerminalStatus')
-        ts = TerminalStatus.objects.first()
-        device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
+        device_id = int(terminal.identifier) if terminal and terminal.identifier is not None else 0
 
         params = EncodedParams(
             oper=3,
@@ -178,8 +179,9 @@ def _run_wash(order_id: int):
     except Exception:
         pause_sec = 5
 
-    time.sleep(pause_sec)
-    WashOrder.try_run_next_car_wash()
+    if terminal.has_queue_availability():
+        time.sleep(pause_sec)
+        WashOrder.try_run_next_car_wash(terminal)
 
 
 def start_car_wash(order):
