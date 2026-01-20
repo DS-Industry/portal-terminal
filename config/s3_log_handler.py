@@ -41,9 +41,10 @@ class S3RotatingFileHandler(RotatingFileHandler):
         portal_number: Optional[str] = None,
         s3_bucket: Optional[str] = None,
         s3_region: str = 'us-east-1',
+        s3_endpoint_url: Optional[str] = None,
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
-        upload_interval: int = 300,
+        upload_interval: int = 65,
         errors=None
     ):
         """
@@ -59,9 +60,10 @@ class S3RotatingFileHandler(RotatingFileHandler):
             portal_number: Portal/terminal identifier for S3 path
             s3_bucket: S3 bucket name
             s3_region: AWS region (default: us-east-1)
+            s3_endpoint_url: Custom S3 endpoint URL (optional, for S3-compatible services)
             aws_access_key_id: AWS access key ID
             aws_secret_access_key: AWS secret access key
-            upload_interval: Upload interval in seconds (default: 300 = 5 minutes)
+            upload_interval: Upload interval in seconds (default: 65 = 1 minute 5 seconds)
             errors: Error handling (same as RotatingFileHandler)
         """
         # Initialize parent RotatingFileHandler for local file logging
@@ -79,6 +81,7 @@ class S3RotatingFileHandler(RotatingFileHandler):
         self.portal_number = portal_number
         self.s3_bucket = s3_bucket
         self.s3_region = s3_region
+        self.s3_endpoint_url = s3_endpoint_url
         self.aws_access_key_id = aws_access_key_id
         self.aws_secret_access_key = aws_secret_access_key
         self.upload_interval = upload_interval
@@ -113,12 +116,17 @@ class S3RotatingFileHandler(RotatingFileHandler):
         """Get or create S3 client (lazy initialization)."""
         if self._s3_client is None and self.s3_enabled:
             try:
-                self._s3_client = boto3.client(
-                    's3',
-                    region_name=self.s3_region,
-                    aws_access_key_id=self.aws_access_key_id,
-                    aws_secret_access_key=self.aws_secret_access_key
-                )
+                client_kwargs = {
+                    'region_name': self.s3_region,
+                    'aws_access_key_id': self.aws_access_key_id,
+                    'aws_secret_access_key': self.aws_secret_access_key
+                }
+                
+                # Add custom endpoint URL if provided (for S3-compatible services)
+                if self.s3_endpoint_url:
+                    client_kwargs['endpoint_url'] = self.s3_endpoint_url
+                
+                self._s3_client = boto3.client('s3', **client_kwargs)
             except Exception as e:
                 # Log error but don't break logging
                 self._log_s3_error(f"Failed to create S3 client: {e}")

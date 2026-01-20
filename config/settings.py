@@ -139,8 +139,9 @@ PORTAL_NUMBER = os.getenv('PORTAL_NUMBER')
 AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
 AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
 AWS_S3_BUCKET = os.getenv('AWS_S3_BUCKET')
+AWS_S3_ENDPOINT_URL = os.getenv('AWS_S3_ENDPOINT_URL')  # Custom S3 endpoint (e.g., https://s3.twcstorage.ru)
 AWS_S3_REGION = os.getenv('AWS_S3_REGION', 'us-east-1')
-S3_LOG_UPLOAD_INTERVAL = int(os.getenv('S3_LOG_UPLOAD_INTERVAL', '300'))  # 5 minutes default
+S3_LOG_UPLOAD_INTERVAL = int(os.getenv('S3_LOG_UPLOAD_INTERVAL', '65'))  # Default: 65 seconds (1 minute 5 seconds)
 ENABLE_S3_LOGS = os.getenv('ENABLE_S3_LOGS', 'True').lower() == 'true'
 
 # Check if S3 logging should be enabled
@@ -173,6 +174,7 @@ def create_file_handler(filename, max_bytes, backup_count, formatter_name, level
             portal_number=PORTAL_NUMBER,
             s3_bucket=AWS_S3_BUCKET,
             s3_region=AWS_S3_REGION,
+            s3_endpoint_url=AWS_S3_ENDPOINT_URL,
             aws_access_key_id=AWS_ACCESS_KEY_ID,
             aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
             upload_interval=S3_LOG_UPLOAD_INTERVAL,
