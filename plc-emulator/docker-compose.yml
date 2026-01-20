@@ -1,0 +1,53 @@
+version: "3.9"
+
+services:
+  plc-emulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: plc-emulator
+    image: plc-emulator:latest
+    ports:
+      # Map container port 502 to host port 5020 (to avoid root requirement)
+      # Change 5020:502 to 502:502 if you want to use standard port (requires root)
+      - "${PLC_PORT:-5020}:502"
+    environment:
+      # Network configuration
+      # Override config.py values via environment variables
+      # Note: On Windows, use explicit values or ensure .env file exists
+      - PLC_HOST=${PLC_HOST:-0.0.0.0}
+      - PLC_PORT=502  # Internal container port (always 502) - explicit value for Windows compatibility
+      - PLC_UNIT_ID=${PLC_UNIT_ID:-1}
+      
+      # Logging
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - DEBUG_MODBUS=${DEBUG_MODBUS:-false}
+    volumes:
+      # Mount config file for easy editing without rebuilding
+      # Comment out if you want to use baked-in config
+      - ./config.py:/app/config.py:ro
+      # Optional: mount .env file if you want to override settings
+      # - ./.env:/app/.env:ro
+    restart: unless-stopped
+    networks:
+      - plc-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pymodbus.client import ModbusTcpClient; c = ModbusTcpClient('localhost', 502); exit(0 if c.connect() else 1); c.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+networks:
+  plc-network:
+    driver: bridge
+    name: plc-emulator-network
+
+# To connect from another Docker container:
+# 1. Add this network to your other docker-compose.yml:
+#    networks:
+#      - your-network
+#      - plc-emulator-network
+#    external: true
+# 2. Use 'plc-emulator' as hostname and port 502
+

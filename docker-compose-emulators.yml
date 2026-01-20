@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  # Modbus TCP Server Emulator (PLC)
+  plc-emulator:
+    build:
+      context: .
+      dockerfile: emulators/Dockerfile.plc
+    container_name: plc-emulator
+    ports:
+      - "5020:502"  # Use non-standard port to avoid conflicts
+    environment:
+      - EMULATOR_HOST=0.0.0.0
+      - EMULATOR_PORT=502
+    networks:
+      - emulator-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "from pymodbus.client import ModbusTcpClient; c = ModbusTcpClient('localhost', 502); exit(0 if c.connect() else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Vendotek POS Terminal Emulator
+  pos-emulator:
+    build:
+      context: .
+      dockerfile: emulators/Dockerfile.pos
+    container_name: pos-emulator
+    ports:
+      - "4001:4001"
+    environment:
+      - EMULATOR_HOST=0.0.0.0
+      - EMULATOR_PORT=4001
+      - AUTO_APPROVE=true
+    networks:
+      - emulator-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import socket; s = socket.socket(); s.settimeout(1); exit(0 if s.connect_ex(('localhost', 4001)) == 0 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+networks:
+  emulator-network:
+    driver: bridge
+    name: hardware-emulators
+

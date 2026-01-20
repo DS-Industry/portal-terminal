@@ -21,3 +21,6 @@ asgiref>=3.7.0
 pytest==8.1.1
 pytest-django==4.8.0
 model-bakery==1.17.0
+
+# AWS S3 для загрузки логов
+boto3>=1.28.0
