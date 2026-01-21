@@ -134,6 +134,59 @@ MODBUS_TIMEOUT = int(os.getenv('MODBUS_TIMEOUT', '10'))
 LOG_DIR = os.environ.get('LOG_DIR', os.path.join(BASE_DIR, 'logs'))
 os.makedirs(LOG_DIR, exist_ok=True)
 
+# S3 Log Upload Configuration
+PORTAL_NUMBER = os.getenv('PORTAL_NUMBER')
+AWS_ACCESS_KEY_ID = os.getenv('AWS_ACCESS_KEY_ID')
+AWS_SECRET_ACCESS_KEY = os.getenv('AWS_SECRET_ACCESS_KEY')
+AWS_S3_BUCKET = os.getenv('AWS_S3_BUCKET')
+AWS_S3_ENDPOINT_URL = os.getenv('AWS_S3_ENDPOINT_URL')  # Custom S3 endpoint (e.g., https://s3.twcstorage.ru)
+AWS_S3_REGION = os.getenv('AWS_S3_REGION', 'us-east-1')
+S3_LOG_UPLOAD_INTERVAL = int(os.getenv('S3_LOG_UPLOAD_INTERVAL', '65'))  # Default: 65 seconds (1 minute 5 seconds)
+ENABLE_S3_LOGS = os.getenv('ENABLE_S3_LOGS', 'True').lower() == 'true'
+
+# Check if S3 logging should be enabled
+S3_LOGGING_ENABLED = (
+    ENABLE_S3_LOGS and
+    PORTAL_NUMBER and
+    AWS_ACCESS_KEY_ID and
+    AWS_SECRET_ACCESS_KEY and
+    AWS_S3_BUCKET
+)
+
+# Import S3 handler if S3 logging is enabled
+S3_HANDLER_AVAILABLE = False
+if S3_LOGGING_ENABLED:
+    try:
+        from config.s3_log_handler import S3RotatingFileHandler
+        S3_HANDLER_AVAILABLE = True
+    except ImportError:
+        S3_HANDLER_AVAILABLE = False
+
+# Factory function for creating file handlers
+def create_file_handler(filename, max_bytes, backup_count, formatter_name, level='INFO', **kwargs):
+    """Factory function to create file handler (S3 or regular)."""
+    if S3_HANDLER_AVAILABLE:
+        return S3RotatingFileHandler(
+            filename=filename,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding='utf-8',
+            portal_number=PORTAL_NUMBER,
+            s3_bucket=AWS_S3_BUCKET,
+            s3_region=AWS_S3_REGION,
+            s3_endpoint_url=AWS_S3_ENDPOINT_URL,
+            aws_access_key_id=AWS_ACCESS_KEY_ID,
+            aws_secret_access_key=AWS_SECRET_ACCESS_KEY,
+            upload_interval=S3_LOG_UPLOAD_INTERVAL,
+        )
+    else:
+        return logging.handlers.RotatingFileHandler(
+            filename=filename,
+            maxBytes=max_bytes,
+            backupCount=backup_count,
+            encoding='utf-8',
+        )
+
 LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
@@ -149,25 +202,30 @@ LOGGING = {
     },
     'handlers': {
         # Ротация для основного лога Django (10MB, 5 файлов)
+        # Использует S3RotatingFileHandler если S3 включен, иначе обычный RotatingFileHandler
         'file': {
+            '()': lambda: create_file_handler(
+                filename=os.path.join(LOG_DIR, 'django.log'),
+                max_bytes=10 * 1024 * 1024,  # 10 MB
+                backup_count=5,
+                formatter_name='verbose',
+                level='INFO'
+            ),
             'level': 'INFO',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(LOG_DIR, 'django.log'),
-            'maxBytes': 10 * 1024 * 1024,  # 10 MB
-            'backupCount': 5,
             'formatter': 'verbose',
-            'encoding': 'utf-8',
         },
 
         # Ротация для console логов (10MB, 5 файлов)
         'console_file': {
+            '()': lambda: create_file_handler(
+                filename=os.path.join(LOG_DIR, 'console.log'),
+                max_bytes=10 * 1024 * 1024,  # 10 MB
+                backup_count=5,
+                formatter_name='simple',
+                level='INFO'
+            ),
             'level': 'INFO',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(LOG_DIR, 'console.log'),
-            'maxBytes': 10 * 1024 * 1024,  # 10 MB
-            'backupCount': 5,
             'formatter': 'simple',
-            'encoding': 'utf-8',
         },
 
         # Вывод в консоль Docker
@@ -179,13 +237,15 @@ LOGGING = {
 
         # Лог для ошибок (5MB, 3 файла)
         'error_file': {
+            '()': lambda: create_file_handler(
+                filename=os.path.join(LOG_DIR, 'errors.log'),
+                max_bytes=5 * 1024 * 1024,  # 5 MB
+                backup_count=3,
+                formatter_name='verbose',
+                level='ERROR'
+            ),
             'level': 'ERROR',
-            'class': 'logging.handlers.RotatingFileHandler',
-            'filename': os.path.join(LOG_DIR, 'errors.log'),
-            'maxBytes': 5 * 1024 * 1024,  # 5 MB
-            'backupCount': 3,
             'formatter': 'verbose',
-            'encoding': 'utf-8',
         },
     },
     'loggers': {
