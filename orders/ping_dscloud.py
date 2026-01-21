@@ -326,7 +326,7 @@ def dscloud_job():
     try:
         WashOrder, TerminalStatus, Program = _get_models()
 
-        processing_order = WashOrder.get_processing_order()
+        processing_order = WashOrder.objects.filter(status=WashOrder.Status.PROCESSING).first()
         if processing_order:
             _gvl_sent_for = str(processing_order.transaction_id)
             _last_processing_order_id = str(processing_order.transaction_id)

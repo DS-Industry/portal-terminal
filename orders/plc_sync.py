@@ -90,6 +90,7 @@ def start_plc_scheduler():
             id='plc_programs_job',
             name='PLC Programs Sync Job',
             replace_existing=True,
+            misfire_grace_time=60
         )
 
     # Задача синхронизации цен
@@ -100,6 +101,7 @@ def start_plc_scheduler():
             id='plc_prices_job',
             name='PLC Prices Sync Job',
             replace_existing=True,
+            misfire_grace_time=60
         )
 
     # Задача синхронизации статуса
@@ -110,6 +112,7 @@ def start_plc_scheduler():
             id='plc_status_job',
             name='PLC Status Sync Job',
             replace_existing=True,
+            misfire_grace_time=60
         )
 
     _scheduler_instance.start()
