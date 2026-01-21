@@ -230,7 +230,7 @@ class WashOrderStartView(APIView):
 
         print(f"[LOG] Пришел запрос на запуск {order.transaction_id}.")
 
-        if order.can_start():
+        if not order.can_start():
             return Response(
                 {
                     'error': f'Невозможно запустить заказ со статусом "{order.get_status_display()}"'
