@@ -28,6 +28,7 @@ class WashOrder(models.Model):
         CASH = 'cash', "Наличные"
         MOBILE_APP = 'mobile_app', "Мобильное приложение"
         LOYALTY_CARD = 'loyalty_card', "Карта лояльности"
+        OPTI = 'opti', "OPTI"
 
     program = models.ForeignKey(Program, on_delete=models.CASCADE)
 

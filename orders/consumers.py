@@ -49,3 +49,11 @@ class OrderStatusConsumer(AsyncWebsocketConsumer):
             'type': 'card_reader',
             'code': event['code']
         }))
+
+    async def order_qr_opti(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'order_qr_opti',
+            'order_id': event['order_id'],
+            'transaction_id': event['transaction_id'],
+            'qr': event['qr']
+        }))

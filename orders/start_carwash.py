@@ -144,7 +144,8 @@ def _run_wash(order_id: int):
         WashOrder.PaymentType.CASH: 1,
         WashOrder.PaymentType.MOBILE_APP: 2,
         WashOrder.PaymentType.LOYALTY_CARD: 2,
-        WashOrder.PaymentType.BANK_CARD: 3
+        WashOrder.PaymentType.BANK_CARD: 3,
+        WashOrder.PaymentType.OPTI: 2
     }
 
     first_digit = payment_type_to_digit.get(order.payment_type, 0)

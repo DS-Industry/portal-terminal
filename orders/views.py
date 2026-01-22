@@ -149,7 +149,8 @@ class WashOrderPaymentView(APIView):
             order = WashOrder.create_order(program=program, payment_type=payment_type, ucn=ucn)
             OrderWebSocketService.send_order_status_update(order)
 
-            print(f"[LOG] Новый заказ создан: ID={order.transaction_id}, Очередь={order.queue_number}, Позиция={order.queue_position}")
+            print(
+                f"[LOG] Новый заказ создан: ID={order.transaction_id}, Очередь={order.queue_number}, Позиция={order.queue_position}")
             order.mark_waiting_payment()
             order.ensure_not_canceled()
             PaymentService.process_payment(order, terminal, payment_type, ucn)
@@ -166,11 +167,11 @@ class WashOrderPaymentView(APIView):
                 if qr_code:
                     order.qr_code = qr_code
                     print(f"[QR] Чек успешно получен: {qr_code}")
+
+                    order.save(update_fields=['qr_code'])
+                    print(f"[LOG] Статус заказа {order.transaction_id} обновлён: изменение в qr-code")
                 else:
                     print("[QR] Не удалось получить чек.")
-
-            order.save(update_fields=['qr_code'])
-            print(f"[LOG] Статус заказа {order.transaction_id} обновлён: изменение в qr-code")
 
             return Response(
                 {
@@ -242,7 +243,7 @@ class WashOrderStartView(APIView):
             print(f"[LOG] У заказа {order.transaction_id} есть номер в очереди: {order.queue_number}.")
             return Response(
                 {
-                     "message": "Заказ стоит в очереди."
+                    "message": "Заказ стоит в очереди."
                 },
                 status=200
             )
