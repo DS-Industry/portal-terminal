@@ -144,6 +144,11 @@ AWS_S3_REGION = os.getenv('AWS_S3_REGION', 'us-east-1')
 S3_LOG_UPLOAD_INTERVAL = int(os.getenv('S3_LOG_UPLOAD_INTERVAL', '65'))  # Default: 65 seconds (1 minute 5 seconds)
 ENABLE_S3_LOGS = os.getenv('ENABLE_S3_LOGS', 'True').lower() == 'true'
 
+OPTI_BASE_URL = os.getenv("OPTI_BASE_URL")
+OPTI_LOGIN = os.getenv("OPTI_LOGIN")
+OPTI_PASSWORD = os.getenv("OPTI_PASSWORD")
+OPTI_POI_ID = os.getenv("OPTI_POI_ID")
+
 # Check if S3 logging should be enabled
 S3_LOGGING_ENABLED = (
     ENABLE_S3_LOGS and

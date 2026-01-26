@@ -20,13 +20,14 @@ from .serializers import (
     WashOrderDetailSerializer
 )
 from .receipt_qr import send_receipt_request
-from .payments import (
+from .payment import (
     cancel_bank_card_payment
 )
 from .payment_service import PaymentService
 from .ucn import (
     LoyaltyManager
 )
+from orders.payments.opti.service import OptiPaymentService
 
 
 class ProgramViewSet(viewsets.ModelViewSet):
@@ -212,6 +213,11 @@ class WashOrderCancellationView(APIView):
             cancellation_success = cancel_bank_card_payment(order)
             if not cancellation_success:
                 print(f"[VENDOTEK] Заказ {order.transaction_id} отменен, но ошибка отмены в Vendotek")
+
+        elif order.payment_type == "opti":
+
+            if not OptiPaymentService.cancel(order):
+                print(f"[LOYALTY] Заказ {order.transaction_id} отменен локально, но не отменён в Opti")
 
         return Response(
             {
