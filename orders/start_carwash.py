@@ -71,6 +71,7 @@ def _run_wash(order_id: int):
     print(f"[WASH] Старт мойки (order={order.transaction_id})")
     order.mark_processing()
     start_dt = timezone.now()
+    time.sleep(15)
 
     service = None
     try:
