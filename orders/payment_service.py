@@ -66,6 +66,7 @@ class PaymentService:
 
             time.sleep(10)
             # result = OptiPaymentService.wait_for_payment_result(order)
+            order.ensure_not_canceled()
 
             # if result == "CANCELED":
             #     try:
