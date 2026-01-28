@@ -116,9 +116,6 @@ class WashOrder(models.Model):
             return
 
         if not WashOrder.is_car_wash_busy():
-            self.queue_number = None
-            self.queue_position = 0
-            self.save(update_fields=["queue_number", "queue_position"])
             print(f"[LOG] Заказ {self.transaction_id} сразу запускается (мойка свободна)")
             return
 
