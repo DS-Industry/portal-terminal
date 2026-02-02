@@ -209,15 +209,15 @@ class WashOrderCancellationView(APIView):
 
         order.mark_canceled()
 
-        if order.payment_type == 'bank_card':
-            cancellation_success = cancel_bank_card_payment(order)
-            if not cancellation_success:
-                print(f"[VENDOTEK] Заказ {order.transaction_id} отменен, но ошибка отмены в Vendotek")
-
-        elif order.payment_type == "opti":
-
-            if not OptiPaymentService.cancel(order):
-                print(f"[LOYALTY] Заказ {order.transaction_id} отменен локально, но не отменён в Opti")
+        #if order.payment_type == 'bank_card':
+        #    cancellation_success = cancel_bank_card_payment(order)
+        #    if not cancellation_success:
+        #        print(f"[VENDOTEK] Заказ {order.transaction_id} отменен, но ошибка отмены в Vendotek")
+#
+        #elif order.payment_type == "opti":
+#
+        #    if not OptiPaymentService.cancel(order):
+        #        print(f"[LOYALTY] Заказ {order.transaction_id} отменен локально, но не отменён в Opti")
 
         return Response(
             {
