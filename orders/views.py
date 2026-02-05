@@ -1,3 +1,5 @@
+import time
+
 from django.core.exceptions import ValidationError
 
 from django.utils import timezone
@@ -163,6 +165,7 @@ class WashOrderPaymentView(APIView):
 
             order.mark_payed()
 
+            time.sleep(20)
             if payment_type in ("cash", "bank_card"):
                 qr_code = send_receipt_request(order)
                 if qr_code:

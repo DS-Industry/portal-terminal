@@ -33,7 +33,7 @@ class PaymentService:
         elif payment_type == "bank_card":
             print(f"[VENDOTEK] Начало обработки оплаты по банковской карте для заказа {order.transaction_id}")
             # success, error_message = bank_card_payment(order)
-            time.sleep(10)
+            time.sleep(40)
             success, error_message = True, ""
 
             order.ensure_not_canceled()
