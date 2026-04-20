@@ -7,6 +7,8 @@ class Program(models.Model):
     name = models.CharField(max_length=100)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     lty_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    start_time_lty_price = models.TextField(blank=True, null=True)
+    end_time_lty_price = models.TextField(blank=True, null=True)
     description = models.TextField(blank=True, null=True)
     promo_value = models.TextField(blank=True, null=True)
     duration = models.PositiveIntegerField(default=0)

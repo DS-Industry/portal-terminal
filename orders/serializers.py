@@ -11,7 +11,18 @@ class ProgramSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Program
-        fields = ['id', 'name', 'price', 'lty_price', 'description', 'duration', 'functions', 'promo_value']
+        fields = [
+            'id',
+            'name',
+            'price',
+            'lty_price',
+            'start_time_lty_price',
+            'end_time_lty_price',
+            'description',
+            'duration',
+            'functions',
+            'promo_value'
+        ]
 
 
 class WashOrderPaymentSerializer(serializers.Serializer):

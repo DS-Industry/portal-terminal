@@ -23,12 +23,12 @@ class ProgramAdmin(admin.ModelAdmin):
     Показываем ID, название, цену, описание, время выполнения, id_service и функции.
     """
     list_display = (
-    'id', 'name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions',
+    'id', 'name', 'price', 'lty_price', 'start_time_lty_price', 'end_time_lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions',
     'plc_start_write_address', 'is_visibility')
     ordering = ('id',)
-    fields = ('name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions',
+    fields = ('name', 'price', 'lty_price', 'start_time_lty_price', 'end_time_lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions',
               'plc_start_write_address', 'is_visibility')
-    list_editable = ('name', 'price', 'lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions',
+    list_editable = ('name', 'price', 'lty_price', 'start_time_lty_price', 'end_time_lty_price', 'description', 'promo_value', 'duration', 'id_service', 'functions',
                      'plc_start_write_address', 'is_visibility')
 
 
