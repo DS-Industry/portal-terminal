@@ -89,8 +89,9 @@ class PLCService:
                     program_number = int(program_name.replace('Program', ''))
                     price_data = prices_data.get(program_name, {})
                     regular_price = price_data.get('regular_price', 0)
+                    loyalty_price = price_data.get('loyalty_price')
 
-                    result = self._sync_program(program_data, regular_price)
+                    result = self._sync_program(program_data, regular_price, loyalty_price)
                     if result['status'] == 'created':
                         results['created'] += 1
                     elif result['status'] == 'updated':
@@ -110,7 +111,7 @@ class PLCService:
             logger.error(f"Critical sync error: {e}")
             return {'success': False, 'error': str(e)}
 
-    def _sync_program(self, program_data: Dict, price: float = 0) -> Dict:
+    def _sync_program(self, program_data: Dict, price: float = 0, lty_price: Optional[float] = None) -> Dict:
         """Sync single program to database"""
         program_number = int(program_data['program_name'].replace('Program', ''))
         program_name = f"Program {program_number}"
@@ -135,6 +136,7 @@ class PLCService:
                     defaults={
                         'name': program_name,
                         'price': price,
+                        'lty_price': lty_price,
                         'description': f"Program {program_number} from PLC",
                         'duration': len(functions_list),
                         'functions': functions_string
@@ -142,14 +144,15 @@ class PLCService:
                 )
 
                 if created:
-                    logger.info(f"Created new program: {program_name} (price: {price})")
+                    logger.info(f"Created new program: {program_name} (price: {price}, lty_price: {lty_price})")
                     status = 'created'
                 else:
                     # Update existing program with new price and functions
                     program.price = price
+                    program.lty_price = lty_price
                     program.functions = functions_string
                     program.save()
-                    logger.info(f"Updated program: {program_name} (price: {price})")
+                    logger.info(f"Updated program: {program_name} (price: {price}, lty_price: {lty_price})")
                     status = 'updated'
 
                 return {
@@ -157,6 +160,7 @@ class PLCService:
                     'program_number': program_number,
                     'status': status,
                     'price': price,
+                    'lty_price': lty_price,
                     'functions': functions_list
                 }
 
