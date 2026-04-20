@@ -5,7 +5,7 @@ import requests
 from django.apps import apps
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
-from django.utils import timezone
+from datetime import datetime
 
 from pathlib import Path
 
@@ -196,7 +196,10 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
 
     _mobile_in_progress = True
     try:
-        program = Program.objects.get(price=gvl_cardsum)
+        program = Program.objects.filter(
+            price=gvl_cardsum,
+            is_visibility=True
+        ).first()
         ts = _get_ts()
         if ts:
             _set_ts_gvl_sum(ts, gvl_cardsum)
@@ -230,7 +233,7 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
                 print(f"[ENCODER_MANAGE] Unknown gvl_source={gvl_source!r}, skip sending.")
             else:
                 device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
-                now_dt = timezone.now()
+                now_dt = datetime.now()
                 params = EncodedParams(
                     oper=oper,
                     status=1,
@@ -306,11 +309,11 @@ def _handover_between_washes(WashOrder, TerminalStatus, max_retries: int):
     if next_order:
         expected = int(next_order.program_price)
         _set_ts_gvl_sum(terminal, expected)
-        if _confirm_sum(expected, max_retries, "HANDOVER"):
-            print(f"[DS-HANDOVER] Старт мойки для заказа {next_order.transaction_id} без перехода в Free")
-            start_car_wash(next_order)
-        else:
-            print("[DS-HANDOVER] Подтверждение не пришло. GVL_SUM НЕ обнуляем. Повторит следующая итерация.")
+        #if _confirm_sum(expected, max_retries, "HANDOVER"):
+        #    print(f"[DS-HANDOVER] Старт мойки для заказа {next_order.transaction_id} без перехода в Free")
+        #    start_car_wash(next_order)
+        #else:
+        #    print("[DS-HANDOVER] Подтверждение не пришло. GVL_SUM НЕ обнуляем. Повторит следующая итерация.")
         return
 
     if terminal.gvl_sum != 0:

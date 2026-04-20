@@ -7,7 +7,7 @@ from .websocket_service import OrderWebSocketService
 from .modbus_client import ModbusClient
 logger = logging.getLogger(__name__)
 from .encoder import EncodedParams
-from django.utils import timezone
+from datetime import datetime
 from orders.models.terminal_status import TerminalStatus
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -158,7 +158,7 @@ class BillHolderService:
                     try:
                         terminal = TerminalStatus.get_terminal()
                         device_id = int(terminal.identifier)
-                        now_dt = timezone.now()
+                        now_dt = datetime.now()
 
                         params = EncodedParams(
                             oper=2,

@@ -158,6 +158,7 @@ class WashOrder(models.Model):
         """
         Если мойка свободна и есть заказ с позицией 0 и статусом PAYED — запускает мойку.
         """
+        print(f"[LOG] Запуск")
         if cls.is_car_wash_busy():
             return
 
@@ -173,7 +174,7 @@ class WashOrder(models.Model):
 
         if next_order:
             print(f"[LOG] Заказ {next_order.transaction_id} запускается с позиции 0.")
-
+            print(f"[LOG] 1")
             start_car_wash(next_order)
 
     def ensure_not_canceled(self):

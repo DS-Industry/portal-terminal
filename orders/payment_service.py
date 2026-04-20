@@ -1,5 +1,5 @@
-from orders.models.wash_order import PaymentFailed, OrderCanceled
-from django.utils import timezone
+from orders.models.wash_order import PaymentFailed
+from datetime import datetime
 from .payment import (
     bank_card_payment,
     cash_payment,
@@ -9,8 +9,6 @@ from .payment import (
 from .encoder import EncodedParams
 from .websocket_service import OrderWebSocketService
 import time
-from orders.payments.opti.service import OptiPaymentService
-from orders.payments.opti.exceptions import OptiError
 
 
 class PaymentService:
@@ -32,9 +30,7 @@ class PaymentService:
 
         elif payment_type == "bank_card":
             print(f"[VENDOTEK] Начало обработки оплаты по банковской карте для заказа {order.transaction_id}")
-            # success, error_message = bank_card_payment(order)
-            time.sleep(40)
-            success, error_message = True, ""
+            success, error_message = bank_card_payment(order)
 
             order.ensure_not_canceled()
 
@@ -92,7 +88,7 @@ class PaymentService:
     def _send_bank_event(order, terminal):
         try:
             device_id = int(terminal.identifier)
-            now_dt = timezone.now()
+            now_dt = datetime.now()
 
             params = EncodedParams(
                 oper=23,
