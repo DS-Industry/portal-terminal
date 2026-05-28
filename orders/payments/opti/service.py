@@ -1,6 +1,9 @@
 from .exceptions import OptiError, OptiQrError
 from orders.lty_integrations.opti.service import OptiService
 import time
+from datetime import datetime
+from orders.models.terminal_status import TerminalStatus
+from ...encoder import EncodedParams
 
 
 class OptiPaymentService:
@@ -15,7 +18,7 @@ class OptiPaymentService:
 
         items = [
             {
-                "service_id": order.program.external_service_id,
+                "service_id": opti.service_id,
                 "price": float(order.program_price),
                 "amount": 1,
             }
@@ -49,6 +52,25 @@ class OptiPaymentService:
             status_code = status_response["data"]["status"]
 
             if status_code == 3:
+                try:
+                    terminal = TerminalStatus.get_terminal()
+                    device_id = int(terminal.identifier)
+                    now_dt = datetime.now()
+
+                    params = EncodedParams(
+                        oper=40,
+                        status=1,
+                        data=int(order.program_price),
+                        counter=0,
+                        localId=0,
+                        begDate=now_dt,
+                        endDate=now_dt,
+                        deviceId=device_id
+                    )
+                    results = params.send_hex_to_server()
+                    print(f"[ENCODER_MANAGE] Cash payment sent (oper=40): {results}")
+                except Exception as e:
+                    print(f"[ENCODER_MANAGE] Error sending bank-card payment event: {e}")
                 return "PAID"
 
             if status_code == -1:

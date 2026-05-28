@@ -148,6 +148,7 @@ OPTI_BASE_URL = os.getenv("OPTI_BASE_URL")
 OPTI_LOGIN = os.getenv("OPTI_LOGIN")
 OPTI_PASSWORD = os.getenv("OPTI_PASSWORD")
 OPTI_POI_ID = os.getenv("OPTI_POI_ID")
+OPTI_SERVICE_ID = os.getenv("OPTI_SERVICE_ID")
 
 # Check if S3 logging should be enabled
 S3_LOGGING_ENABLED = (

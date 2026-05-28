@@ -9,6 +9,7 @@ class OptiService:
         self.login = OptiConfig.LOGIN
         self.password = OptiConfig.PASSWORD
         self.poi_id = OptiConfig.POI_ID
+        self.service_id = OptiConfig.SERVICE_ID
         self.access_token = None
 
     # ---------- AUTH ----------
