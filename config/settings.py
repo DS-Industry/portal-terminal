@@ -15,12 +15,18 @@ CORS_ALLOW_ALL_ORIGINS = os.getenv("CORS_ALLOW_ALL_ORIGINS", "False") == "True"
 
 ASGI_APPLICATION = 'config.asgi.application'
 
+REDIS_HOST = os.getenv('REDIS_HOST', 'redis')
+REDIS_PORT = int(os.getenv('REDIS_PORT', 6379))
+
 CHANNEL_LAYERS = {
     'default': {
         'BACKEND': 'channels_redis.core.RedisChannelLayer',
         'CONFIG': {
-            "hosts": [(os.getenv('REDIS_HOST', 'redis'),
-                      int(os.getenv('REDIS_PORT', 6379)))],
+            'hosts': [{
+                'host': REDIS_HOST,
+                'port': REDIS_PORT,
+                'socket_timeout': None,
+            }],
         },
     },
 }
@@ -39,7 +45,7 @@ INSTALLED_APPS = [
     'django.contrib.auth',
     'django.contrib.contenttypes',
     'django.contrib.sessions',
-    'django.contrib.messages',
+    'django.contrib.messages', 
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
