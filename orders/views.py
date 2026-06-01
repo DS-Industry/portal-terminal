@@ -166,7 +166,9 @@ class WashOrderPaymentView(APIView):
             order.mark_payed()
 
             if payment_type in ("cash", "bank_card"):
-                qr_code = send_receipt_request(order)
+                #qr_code = send_receipt_request(order)
+                time.sleep(5)
+                qr_code = "test_qr"
                 if qr_code:
                     order.qr_code = qr_code
                     print(f"[QR] Чек успешно получен: {qr_code}")
@@ -212,7 +214,9 @@ class WashOrderCancellationView(APIView):
         order.mark_canceled()
 
         if order.payment_type == 'bank_card':
-            cancellation_success = cancel_bank_card_payment(order)
+            #cancellation_success = cancel_bank_card_payment(order)
+            time.sleep(5)
+            cancellation_success = True
             if not cancellation_success:
                 print(f"[VENDOTEK] Заказ {order.transaction_id} отменен, но ошибка отмены в Vendotek")
 

@@ -73,36 +73,37 @@ def _run_wash(order_id: int):
 
     service = None
     try:
-        service = PLCService(DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC)
-        if service.connect():
-            started = service.start_program(order.program)
-            if not started:
-                print(f"[WASH] Не удалось стартовать программу id={order.program.id} на PLC")
-        else:
-            print("[WASH] Не удалось подключиться к PLC для запуска программы")
+        #service = PLCService(DEFAULT_HOST_PLC, DEFAULT_PORT_PLC, DEFAULT_TIMEOUT_PLC)
+        #if service.connect():
+        #    started = service.start_program(order.program)
+        #    if not started:
+        #        print(f"[WASH] Не удалось стартовать программу id={order.program.id} на PLC")
+        #else:
+        #    print("[WASH] Не удалось подключиться к PLC для запуска программы")
 
+        started = True
         # Ожидание завершения мойки
         if started:
 
-            for i in range(30):
-                time.sleep(1)
-                wash_status = service.get_wash_status()
-
-                if wash_status is None:
-                    print("[WASH] Ошибка чтения статуса, продолжаем ждать...")
-                    continue
-
-                if wash_status:  # True → оборудование реально запустилось
-                    print("[WASH] Оборудование подтвердило запуск — снимаем флаг...")
-                    service.end_program(order.program)  # ✅ снимаем флаг сразу
-                    LedBoardService.set_busy(terminal)
-                    break
-            else:
-                print("[WASH] Оборудование так и не подтвердило запуск")
-                order.mark_failed()
-                OrderWebSocketService.send_error(1004)
-                service.end_program(order.program)
-                return
+            #for i in range(30):
+            #    time.sleep(1)
+            #    wash_status = service.get_wash_status()
+#
+            #    if wash_status is None:
+            #        print("[WASH] Ошибка чтения статуса, продолжаем ждать...")
+            #        continue
+#
+            #    if wash_status:  # True → оборудование реально запустилось
+            #        print("[WASH] Оборудование подтвердило запуск — снимаем флаг...")
+            #        service.end_program(order.program)  # ✅ снимаем флаг сразу
+            #        LedBoardService.set_busy(terminal)
+            #        break
+            #else:
+            #    print("[WASH] Оборудование так и не подтвердило запуск")
+            #    order.mark_failed()
+            #    OrderWebSocketService.send_error(1004)
+            #    service.end_program(order.program)
+            #    return
 
             print(f"[WASH] Ожидание завершения мойки...")
             time.sleep(15)
