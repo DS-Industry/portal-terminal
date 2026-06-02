@@ -215,7 +215,6 @@ class WashOrderCancellationView(APIView):
 
         if order.payment_type == 'bank_card':
             #cancellation_success = cancel_bank_card_payment(order)
-            time.sleep(5)
             cancellation_success = True
             if not cancellation_success:
                 print(f"[VENDOTEK] Заказ {order.transaction_id} отменен, но ошибка отмены в Vendotek")
