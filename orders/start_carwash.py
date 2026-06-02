@@ -106,7 +106,7 @@ def _run_wash(order_id: int):
             #    return
 
             print(f"[WASH] Ожидание завершения мойки...")
-            time.sleep(15)
+            time.sleep(60)
             while True:
                 time.sleep(1)
 

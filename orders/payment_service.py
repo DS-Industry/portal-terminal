@@ -22,7 +22,7 @@ class PaymentService:
         if payment_type == "cash":
             print(f"[CASH_PAYMENT] Начало обработки оплаты по наличке для заказа {order.transaction_id}")
             #success, error_message = cash_payment(order)
-            time.sleep(5)
+            time.sleep(15)
             success, error_message = True, ""
 
             order.ensure_not_canceled()
@@ -35,7 +35,7 @@ class PaymentService:
             print(f"[VENDOTEK] Начало обработки оплаты по банковской карте для заказа {order.transaction_id}")
             #success, error_message = bank_card_payment(order)
 
-            time.sleep(5)
+            time.sleep(15)
             success, error_message = True, ""
 
             order.ensure_not_canceled()
