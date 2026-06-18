@@ -14,7 +14,7 @@ pyserial>=3.5
 channels>=4.0.0
 channels-redis>=4.1.0
 daphne>=4.0.0
-redis>=5.0.0
+redis>=5.0.0,<8.0.0
 asgiref>=3.7.0
 
 # тесты

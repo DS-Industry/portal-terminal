@@ -34,7 +34,7 @@ def send_receipt_request(order) -> Optional[str]:
 
         url = f"http://{server_conf.ip_address}/create-check"
 
-        response = requests.post(url, headers=headers, timeout=15)
+        response = requests.post(url, headers=headers, timeout=20)
         response.raise_for_status()
         data = response.json()
         return data.get("qr")
