@@ -401,11 +401,11 @@ def start_dscloud_scheduler():
 
     _scheduler_instance.add_job(
         func=dscloud_prices_job,
-        trigger=IntervalTrigger(hours=int(PRICE_PING)),  # minutes=1
+        trigger=IntervalTrigger(minutes=int(PRICE_PING)),
         id='dscloud_prices_ping_job',
         name='DScloud Ping Job (Prices)',
         replace_existing=True,
     )
 
     _scheduler_instance.start()
-    print("[DS] APScheduler для DScloud успешно запущен (State ping: 5s, Prices ping: 1min).")
+    print(f"[DS] APScheduler для DScloud успешно запущен (State ping: 5s, Prices ping: {PRICE_PING}min).")
