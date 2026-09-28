@@ -8,23 +8,28 @@ class OrderStatusConsumer(AsyncWebsocketConsumer):
         # Подключаемся к группе обновлений заказов
         self.room_group_name = 'order_status_updates'
 
+        print(f"[WEB-SOCKET] Поток: Попытка подключения")
         await self.channel_layer.group_add(
             self.room_group_name,
             self.channel_name
         )
 
         await self.accept()
+        print(f"[WEB-SOCKET] Поток: Открыт")
         await self.send(text_data=json.dumps({
             'type': 'connection',
             'message': 'Connected to order status updates'
         }))
 
     async def disconnect(self, close_code):
+        print(f"[WEB-SOCKET] Поток: Закрыт")
         # Отключаемся от группы
         await self.channel_layer.group_discard(
             self.room_group_name,
             self.channel_name
         )
+
+        print(f"[WEB-SOCKET] Группа: {self.room_group_name} | Channel: {self.channel_name} удален из группы | Код закрытия: {close_code}")
 
     async def order_status_update(self, event):
         """Отправка обновления статуса заказа всем подключенным клиентам"""
@@ -48,4 +53,12 @@ class OrderStatusConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps({
             'type': 'card_reader',
             'code': event['code']
+        }))
+
+    async def order_qr_opti(self, event):
+        await self.send(text_data=json.dumps({
+            'type': 'order_qr_opti',
+            'order_id': event['order_id'],
+            'transaction_id': event['transaction_id'],
+            'qr': event['qr']
         }))

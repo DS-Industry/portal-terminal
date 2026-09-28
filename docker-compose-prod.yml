@@ -46,7 +46,7 @@ services:
 
   backend:
     image: cr.yandex/crp7i0e7br8dlil8465r/terminal-backend:latest
-    command: daphne -b 0.0.0.0 -p 8000 config.asgi:application
+    command: daphne -b 0.0.0.0 -p 8000 --websocket_timeout -1 config.asgi:application
     env_file: .env
     environment:
       DB_HOST: db

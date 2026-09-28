@@ -1,0 +1,23 @@
+FROM python:3.12-slim
+
+WORKDIR /app
+
+# Copy emulator requirements
+COPY emulators/requirements.txt /app/requirements.txt
+
+# Install dependencies
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copy emulator code
+COPY emulators/modbus_plc_emulator.py /app/modbus_plc_emulator.py
+COPY modbus_config.py /app/modbus_config.py
+
+# Make executable
+RUN chmod +x /app/modbus_plc_emulator.py
+
+# Expose Modbus TCP port
+EXPOSE 502
+
+# Run emulator
+CMD ["python", "/app/modbus_plc_emulator.py", "--host", "${EMULATOR_HOST:-0.0.0.0}", "--port", "${EMULATOR_PORT:-502}"]
+

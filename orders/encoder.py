@@ -2,8 +2,27 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from .models import ManageServerConfig
+from orders.models.manage_server import ManageServerConfig
 import requests
+
+SEND_FILE = "send_data_raw.txt"
+
+
+def append_to_file(hex_string: str):
+    with open(SEND_FILE, "a", encoding="utf-8") as f:
+        f.write(hex_string)
+
+
+def read_file() -> str:
+    try:
+        with open(SEND_FILE, "r", encoding="utf-8") as f:
+            return f.read()
+    except FileNotFoundError:
+        return ""
+
+
+def clear_file():
+    open(SEND_FILE, "w").close()
 
 
 def _encode_datetime(dt: datetime) -> bytes:
@@ -61,48 +80,47 @@ class EncodedParams:
         """Возвращает hex-строку (верхний регистр)."""
         return self.to_bytes().hex().upper()
 
-    def send_hex_to_server(self) -> list[dict]:
-        """
-        Отправляет hex-строку на все сервера из ManageServerConfig.
+    def send_hex_to_server(self) -> str:
+        new_hex = self.to_hex()
 
-        - CW   → http://ip:port/cwash/api/service/data_oven (headers: {"data": hex_string})
-        - ONVI → http://ip:port/data/raw (headers: {"X-API-KEY": "...", "Data": hex_string})
-        """
-        hex_string = self.to_hex()
-        results: list[dict] = []
+        append_to_file(new_hex)
+        full_hex = read_file()
 
-        for config in ManageServerConfig.objects.all():
+        ok_servers = []
+        error_servers = []
+
+        for config in ManageServerConfig.get_all():
+
             if config.type.upper() == "CW":
                 url = f"http://{config.ip_address}:{config.port}/cwash/api/service/data_oven"
-                headers = {"data": hex_string}
+                headers = {"data": full_hex}
+
             elif config.type.upper() == "ONVI":
                 url = f"http://{config.ip_address}:{config.port}/data/raw"
                 headers = {
                     "X-API-KEY": "84c54acb-db24-443d-887e-7a8331f9f9e1",
-                    "Data": "{" + hex_string + "}",
+                    "Data": "{" + full_hex + "}",
                 }
             else:
-                results.append({
-                    "server": str(config),
-                    "success": False,
-                    "error": f"Неизвестный тип сервера: {config.type}"
-                })
+                error_servers.append(f"{config} (unknown type)")
                 continue
 
             try:
                 response = requests.post(url, headers=headers, timeout=10)
                 response.raise_for_status()
-                results.append({
-                    "server": str(config),
-                    "success": True,
-                    "status_code": response.status_code,
-                    "response": response.text,
-                })
-            except Exception as e:
-                results.append({
-                    "server": str(config),
-                    "success": False,
-                    "error": str(e),
-                })
 
-        return results
+                ok_servers.append(str(config))
+
+                # очищаем файл только если хотя бы один сервер принял данные
+                clear_file()
+
+            except Exception as e:
+                error_servers.append(f"{config}: {e}")
+
+        if ok_servers and not error_servers:
+            return f"OK: sent to {', '.join(ok_servers)}"
+
+        if ok_servers and error_servers:
+            return f"PARTIAL: OK[{', '.join(ok_servers)}] ERR[{', '.join(error_servers)}]"
+
+        return f"ERROR: {', '.join(error_servers)}"

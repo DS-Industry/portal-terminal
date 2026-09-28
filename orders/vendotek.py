@@ -3,7 +3,7 @@ import struct
 from typing import Optional
 from dataclasses import dataclass
 
-from .models import VendotekServerConfig
+from orders.models.vendotek_server import VendotekServerConfig
 
 @dataclass
 class VendotekResponse:
@@ -29,7 +29,7 @@ class VendotekClient:
 
     @classmethod
     def from_db(cls, timeout: int = 60) -> Optional["VendotekClient"]:
-        conf = VendotekServerConfig.objects.first()
+        conf = VendotekServerConfig.get()
         if not conf:
             print("[VENDOTEK] Нет настроек в VendotekServerConfig")
             return None

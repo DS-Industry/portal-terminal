@@ -5,7 +5,7 @@ import requests
 from django.apps import apps
 from django.db import transaction
 from django.core.exceptions import ObjectDoesNotExist
-from django.utils import timezone
+from datetime import datetime
 
 from pathlib import Path
 
@@ -16,10 +16,6 @@ from .start_carwash import start_car_wash
 from .websocket_service import OrderWebSocketService
 
 from .encoder import EncodedParams
-
-from .models import (
-    WashOrder,
-)
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env_file = BASE_DIR / ".env"
@@ -182,15 +178,6 @@ def _confirm_zero(max_retries: int = 3, label: str = "CLEANUP"):
     return False
 
 
-def _next_payed_in_queue(WashOrder):
-    from .queue_option import update_queue_positions_after_start
-    update_queue_positions_after_start()
-    return WashOrder.objects.filter(
-        status=WashOrder.Status.PAYED,
-        queue_position=0
-    ).order_by("id").first()
-
-
 def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, max_retries: int) -> bool:
     """
     Возвращает True, если мобилка обработана (были действия или явный отказ),
@@ -209,7 +196,10 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
 
     _mobile_in_progress = True
     try:
-        program = Program.objects.get(price=gvl_cardsum)
+        program = Program.objects.filter(
+            price=gvl_cardsum,
+            is_visibility=True
+        ).first()
         ts = _get_ts()
         if ts:
             _set_ts_gvl_sum(ts, gvl_cardsum)
@@ -243,7 +233,7 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
                 print(f"[ENCODER_MANAGE] Unknown gvl_source={gvl_source!r}, skip sending.")
             else:
                 device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
-                now_dt = timezone.now()
+                now_dt = datetime.now()
                 params = EncodedParams(
                     oper=oper,
                     status=1,
@@ -288,20 +278,18 @@ def _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, 
         _mobile_in_progress = False
 
 
-def _start_payed_without_queue(order, TerminalStatus, max_retries):
+def _start_payed_without_queue(order, terminal, max_retries):
     print("[DEBUG] START: _start_payed_without_queue")
 
     expected_sum = int(order.program_price)
     print("[DEBUG] expected_sum OK")
 
     print("[DEBUG] Getting TerminalStatus...")
-    ts = TerminalStatus.objects.first()
-    print(f"[DEBUG] TerminalStatus = {ts}")
+    print(f"[DEBUG] TerminalStatus = {terminal}")
 
-    if ts:
-        print("[DEBUG] Setting GVL sum")
-        _set_ts_gvl_sum(ts, expected_sum)
-        print("[DEBUG] Set GVL sum OK")
+    print("[DEBUG] Setting GVL sum")
+    terminal.set_gvl_sum(expected_sum)
+    print("[DEBUG] Set GVL sum OK")
 
     print("[DEBUG] Calling confirm_sum...")
     if not _confirm_sum(expected_sum, max_retries, "PAYED"):
@@ -316,22 +304,21 @@ def _handover_between_washes(WashOrder, TerminalStatus, max_retries: int):
     Стык моек: если есть очередь — НЕ обнуляем, а сразу шлём сумму следующего и стартуем;
     если очереди нет — обнуляем.
     """
-    next_order = _next_payed_in_queue(WashOrder)
-    ts = TerminalStatus.objects.first()
+    next_order = WashOrder.get_next_payed_from_queue()
+    terminal = TerminalStatus.get_terminal()
     if next_order:
         expected = int(next_order.program_price)
-        if ts:
-            _set_ts_gvl_sum(ts, expected)
-        if _confirm_sum(expected, max_retries, "HANDOVER"):
-            print(f"[DS-HANDOVER] Старт мойки для заказа {next_order.transaction_id} без перехода в Free")
-            start_car_wash(next_order)
-        else:
-            print("[DS-HANDOVER] Подтверждение не пришло. GVL_SUM НЕ обнуляем. Повторит следующая итерация.")
+        _set_ts_gvl_sum(terminal, expected)
+        #if _confirm_sum(expected, max_retries, "HANDOVER"):
+        #    print(f"[DS-HANDOVER] Старт мойки для заказа {next_order.transaction_id} без перехода в Free")
+        #    start_car_wash(next_order)
+        #else:
+        #    print("[DS-HANDOVER] Подтверждение не пришло. GVL_SUM НЕ обнуляем. Повторит следующая итерация.")
         return
 
-    if ts and ts.gvl_sum != 0:
-        print(f"[DS-CLEANUP] Очереди нет. Обнуляем GVL_SUM (было {ts.gvl_sum}).")
-        _set_ts_gvl_sum(ts, 0)
+    if terminal.gvl_sum != 0:
+        print(f"[DS-CLEANUP] Очереди нет. Обнуляем GVL_SUM (было {terminal.gvl_sum}).")
+        _set_ts_gvl_sum(terminal, 0)
         _confirm_zero(max_retries, "CLEANUP")
 
 
@@ -352,14 +339,6 @@ def dscloud_job():
 
         if _handle_mobile_when_free(response_data, Program, TerminalStatus, WashOrder, max_retries):
             return
-
-        #payed_no_queue = WashOrder.objects.filter(
-        #    status=WashOrder.Status.PAYED,
-        #    queue_position=None
-        #).order_by("id").first()
-        #if payed_no_queue:
-        #    _start_payed_without_queue(payed_no_queue, TerminalStatus, max_retries)
-        #    return
 
         if _gvl_sent_for and not processing_order:
             print(f"[DS-HANDOVER] Заказ {_gvl_sent_for} завершён. Обрабатываем переход.")
@@ -422,11 +401,11 @@ def start_dscloud_scheduler():
 
     _scheduler_instance.add_job(
         func=dscloud_prices_job,
-        trigger=IntervalTrigger(hours=int(PRICE_PING)),  # minutes=1
+        trigger=IntervalTrigger(minutes=int(PRICE_PING)),
         id='dscloud_prices_ping_job',
         name='DScloud Ping Job (Prices)',
         replace_existing=True,
     )
 
     _scheduler_instance.start()
-    print("[DS] APScheduler для DScloud успешно запущен (State ping: 5s, Prices ping: 1min).")
+    print(f"[DS] APScheduler для DScloud успешно запущен (State ping: 5s, Prices ping: {PRICE_PING}min).")

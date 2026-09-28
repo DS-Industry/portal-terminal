@@ -3,14 +3,12 @@ from typing import Optional
 import time
 import os
 from pathlib import Path
-from django.conf import settings
-
+from .websocket_service import OrderWebSocketService
 from .modbus_client import ModbusClient
-
 logger = logging.getLogger(__name__)
-from .models import TerminalStatus
 from .encoder import EncodedParams
-from django.utils import timezone
+from datetime import datetime
+from orders.models.terminal_status import TerminalStatus
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 env_file = BASE_DIR / ".env"
@@ -92,12 +90,35 @@ class BillHolderService:
         logger.info(f"BillHolder: начало приема оплаты для заказа {order.id}. Сумма к оплате: {order.program_price}")
         print(f"[BILL-HOLDER] начало приема оплаты для заказа {order.id}. Сумма к оплате: {order.program_price}")
 
+        max_idle_seconds = 30
+        start_wait_time = time.monotonic()
+        first_cash_received = False
+
         try:
             while True:
+
+                if not first_cash_received:
+                    elapsed = time.monotonic() - start_wait_time
+                    if elapsed >= max_idle_seconds:
+                        logger.info(
+                            f"[BILL-HOLDER] Таймаут ожидания первой купюры "
+                            f"({max_idle_seconds} сек). Заказ отменён."
+                        )
+                        print(
+                            f"[BILL-HOLDER] Таймаут ожидания первой купюры. "
+                            f"Заказ {order.id} отменён."
+                        )
+
+                        order.mark_failed()
+                        OrderWebSocketService.send_error(1001)
+                        return False
+
                 # Читаем номинал купюры
                 cash_nominal = self.read_cash_amount()
 
                 if cash_nominal is not None and cash_nominal > 0:
+
+                    first_cash_received = True
 
                     ack_success = self.client.write_register(self.ask_register_address, 1)
 
@@ -135,9 +156,9 @@ class BillHolderService:
                         f"[BILL-HOLDER] внесено {cash_nominal}. Текущая сумма: {order.amount_sum}/{order.program_price}")
 
                     try:
-                        ts = TerminalStatus.objects.first()
-                        device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
-                        now_dt = timezone.now()
+                        terminal = TerminalStatus.get_terminal()
+                        device_id = int(terminal.identifier)
+                        now_dt = datetime.now()
 
                         params = EncodedParams(
                             oper=2,

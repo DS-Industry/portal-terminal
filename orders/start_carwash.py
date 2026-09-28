@@ -7,6 +7,7 @@ from pathlib import Path
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.date import DateTrigger
 from .websocket_service import OrderWebSocketService
+from .led_board_servise import LedBoardService
 
 from django.apps import apps
 from django.utils import timezone
@@ -39,7 +40,8 @@ _scheduler: Optional[BackgroundScheduler] = None
 def _get_models():
     WashOrder = apps.get_model('orders', 'WashOrder')
     WashSettings = apps.get_model('orders', 'WashSettings')
-    return WashOrder, WashSettings
+    TerminalStatus = apps.get_model('orders', 'TerminalStatus')
+    return WashOrder, WashSettings, TerminalStatus
 
 
 def _ensure_scheduler():
@@ -56,7 +58,8 @@ def _run_wash(order_id: int):
     - Длительность мойки фиксированная: 60 сек (заглушка).
     - Пауза между мойками: WashSettings.delay_between_washes (сек), иначе 5 сек по умолчанию.
     """
-    WashOrder, WashSettings = _get_models()
+    WashOrder, WashSettings, TerminalStatus = _get_models()
+    terminal = TerminalStatus.get_terminal()
     try:
         order = WashOrder.objects.get(id=order_id)
     except WashOrder.DoesNotExist:
@@ -65,10 +68,8 @@ def _run_wash(order_id: int):
 
     # Переводим в PROCESSING
     print(f"[WASH] Старт мойки (order={order.transaction_id})")
-    order.status = WashOrder.Status.PROCESSING
-    order.save(update_fields=["status"])
-    OrderWebSocketService.send_order_status_update(order)
-    start_dt = timezone.now()
+    order.mark_processing()
+    start_dt = datetime.now()
 
     service = None
     try:
@@ -94,9 +95,13 @@ def _run_wash(order_id: int):
                 if wash_status:  # True → оборудование реально запустилось
                     print("[WASH] Оборудование подтвердило запуск — снимаем флаг...")
                     service.end_program(order.program)  # ✅ снимаем флаг сразу
+                    LedBoardService.set_busy(terminal)
                     break
             else:
                 print("[WASH] Оборудование так и не подтвердило запуск")
+                order.mark_failed()
+                OrderWebSocketService.send_error(1004)
+                service.end_program(order.program)
                 return
 
             print(f"[WASH] Ожидание завершения мойки...")
@@ -113,6 +118,7 @@ def _run_wash(order_id: int):
 
                 if not wash_status:  # False - мойка завершена
                     print(f"[WASH] Мойка завершена по статусу PLC")
+                    LedBoardService.set_free(terminal)
                     break
 
     except Exception as e:
@@ -125,7 +131,7 @@ def _run_wash(order_id: int):
                 pass
 
     # 2) Завершаем заказ
-    end_dt = timezone.now()
+    end_dt = datetime.now()
     order.status = WashOrder.Status.COMPLETED
     order.queue_position = None
     order.queue_number = None
@@ -137,7 +143,8 @@ def _run_wash(order_id: int):
         WashOrder.PaymentType.CASH: 1,
         WashOrder.PaymentType.MOBILE_APP: 2,
         WashOrder.PaymentType.LOYALTY_CARD: 2,
-        WashOrder.PaymentType.BANK_CARD: 3
+        WashOrder.PaymentType.BANK_CARD: 3,
+        WashOrder.PaymentType.OPTI: 2
     }
 
     first_digit = payment_type_to_digit.get(order.payment_type, 0)
@@ -148,9 +155,7 @@ def _run_wash(order_id: int):
 
     # отправляем событие "Программа (в конце мойки)"
     try:
-        TerminalStatus = apps.get_model('orders', 'TerminalStatus')
-        ts = TerminalStatus.objects.first()
-        device_id = int(ts.identifier) if ts and ts.identifier is not None else 0
+        device_id = int(terminal.identifier) if terminal and terminal.identifier is not None else 0
 
         params = EncodedParams(
             oper=3,
@@ -174,11 +179,9 @@ def _run_wash(order_id: int):
     except Exception:
         pause_sec = 5
 
-    time.sleep(pause_sec)
-
-    # 4) Запуск следующего из очереди
-    from .queue_option import try_run_next_car_wash
-    try_run_next_car_wash()
+    if terminal.has_queue_availability():
+        time.sleep(pause_sec)
+        WashOrder.try_run_next_car_wash(terminal)
 
 
 def start_car_wash(order):
